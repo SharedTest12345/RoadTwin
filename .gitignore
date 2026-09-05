@@ -1,0 +1,19 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# Backend
+backend/.venv/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/uvicorn*.log
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Scratch
+.scratch/
