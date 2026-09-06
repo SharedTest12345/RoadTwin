@@ -29,15 +29,13 @@ function speckleCanvas(size: number, base: string, variants: [string, number][],
   return canvas;
 }
 
-// Matte dark-slate/charcoal — a neutral canvas the road, guardrails, and vehicle
-// lights can pop against, rather than a busy olive-green that competed with them.
-// Kept noticeably lighter than the background/fog color (#090d16) — the first
-// pass matched them too closely and the ground became genuinely invisible
-// (not just moody) whenever a road's camera angle faced away from the sun.
+// Daylight ground: scrubby hillside green for steep/ghat roads, drier verge green
+// for flat ones. The previous dark-slate palette was chosen for a night scene, and
+// under a real sky it read as tarmac stretching to the horizon rather than ground.
 export function groundTexture(isHilly: boolean): THREE.CanvasTexture {
   const canvas = isHilly
-    ? speckleCanvas(256, "#2a3548", [["#374260", 900], ["#1c2436", 900], ["#42506e", 250]], 7)
-    : speckleCanvas(256, "#1e2740", [["#26314c", 700], ["#161d30", 700], ["#303e5c", 200]], 11);
+    ? speckleCanvas(256, "#5d6b42", [["#6d7c4e", 900], ["#4a5636", 900], ["#7d8a5f", 250]], 7)
+    : speckleCanvas(256, "#6b7550", [["#7a8560", 700], ["#57603f", 700], ["#8a9470", 200]], 11);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -46,8 +44,11 @@ export function groundTexture(isHilly: boolean): THREE.CanvasTexture {
   return tex;
 }
 
+// Mid-gray daylight asphalt. At the old #22262c the road surface was within a few
+// percent of the night background, so the ribbon only ever read as its painted
+// lane markings — the actual carriageway was invisible.
 export function asphaltTexture(): THREE.CanvasTexture {
-  const canvas = speckleCanvas(256, "#22262c", [["#2c3138", 1400], ["#181b20", 1400], ["#33383f", 300]], 3);
+  const canvas = speckleCanvas(256, "#4a4e55", [["#565b63", 1400], ["#3e424a", 1400], ["#61666e", 300]], 3);
   const ctx = canvas.getContext("2d")!;
   // faint longitudinal grain
   ctx.globalAlpha = 0.08;
@@ -82,7 +83,9 @@ export function buildingTextures(seed: number, lit = true): { map: THREE.CanvasT
   const cols = 5, rows = 8;
   const cw = size / cols, ch = size / rows;
   const baseHue = 205 + Math.floor(rand() * 30);
-  const baseColor = `hsl(${baseHue}, 12%, ${16 + Math.floor(rand() * 6)}%)`;
+  // Daylight concrete/render, not a night silhouette. At the old ~16% lightness
+  // the facades were black boxes once the scene stopped being a night shot.
+  const baseColor = `hsl(${baseHue}, 10%, ${58 + Math.floor(rand() * 12)}%)`;
 
   const mapCanvas = document.createElement("canvas");
   mapCanvas.width = mapCanvas.height = size;
@@ -99,15 +102,23 @@ export function buildingTextures(seed: number, lit = true): { map: THREE.CanvasT
   const ectx = emCanvas.getContext("2d")!;
   ectx.fillStyle = "#000000";
   ectx.fillRect(0, 0, size, size);
+  // Windows are painted into BOTH maps. In daylight a window reads as dark glass
+  // against a light facade (the diffuse pass); the emissive pass is kept only as a
+  // faint sheen on a subset, so lit windows still register without the building
+  // turning into a glowing lantern the way a night-only emissive map would.
   const warm = rand() < 0.5;
+  const pad = cw * 0.22;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (!lit || rand() > 0.32) continue;
-      const pad = cw * 0.22;
+      const x = c * cw + pad, y = r * ch + pad * 1.3;
+      const w = cw - pad * 2, h = ch - pad * 2.6;
+      mctx.fillStyle = `rgba(38, 48, 60, ${0.55 + rand() * 0.3})`;
+      mctx.fillRect(x, y, w, h);
+      if (!lit || rand() > 0.22) continue;
       ectx.fillStyle = warm
-        ? `rgb(255, ${190 + Math.floor(rand() * 40)}, ${110 + Math.floor(rand() * 50)})`
-        : `rgb(${210 + Math.floor(rand() * 30)}, ${225 + Math.floor(rand() * 20)}, 255)`;
-      ectx.fillRect(c * cw + pad, r * ch + pad * 1.3, cw - pad * 2, ch - pad * 2.6);
+        ? `rgb(120, ${80 + Math.floor(rand() * 30)}, 40)`
+        : `rgb(${70 + Math.floor(rand() * 25)}, ${85 + Math.floor(rand() * 20)}, 110)`;
+      ectx.fillRect(x, y, w, h);
     }
   }
 

@@ -58,7 +58,7 @@ function RealBuildings({
             map={facadeSets[b.variant].map}
             emissiveMap={facadeSets[b.variant].emissiveMap}
             emissive="#ffffff"
-            emissiveIntensity={3}
+            emissiveIntensity={0.35}
             roughness={0.75}
             metalness={0.1}
           />

@@ -4,6 +4,7 @@ import { Html, useGLTF, Clone } from "@react-three/drei";
 import * as THREE from "three";
 import type { Road } from "../../types";
 import { buildPath, toWorld, perpendicular, sampleAlongPath } from "../../three/geometryUtils";
+import { shoulderDrop } from "../../three/terrainHeight";
 import { STREETLIGHT_MODEL, GUARDRAIL_MODEL, WARNING_SIGN_MODEL, STOP_SIGN_MODEL, CONE_MODEL } from "../../three/propModels";
 
 interface Props {
@@ -72,7 +73,11 @@ export function Infrastructure({ road, guardrailActive, lightingActive, sidewalk
       const p = sampleAlongPath(points, s);
       const [px, pz] = perpendicular(p.ribbonHeading);
       const [wx, wy, wz] = toWorld(p.x, p.y, p.elev);
-      out.push({ pos: new THREE.Vector3(wx + px * (halfWidth + 2.5), wy, wz + pz * (halfWidth + 2.5)), rotY: -p.heading });
+      // Roadside props stand on the embankment slope / ground beside the road, not
+      // at carriageway height — otherwise they float now that the corridor is cut
+      // EMBANKMENT_DROP below the road surface.
+      const y = wy - shoulderDrop(2.5);
+      out.push({ pos: new THREE.Vector3(wx + px * (halfWidth + 2.5), y, wz + pz * (halfWidth + 2.5)), rotY: -p.heading });
     }
     return out;
   }, [points, halfWidth, lightingActive]);
@@ -87,7 +92,7 @@ export function Infrastructure({ road, guardrailActive, lightingActive, sidewalk
       const p = points[idx];
       const [px, pz] = perpendicular(p.ribbonHeading);
       const [wx, wy, wz] = toWorld(p.x, p.y, p.elev);
-      out.push(new THREE.Vector3(wx - px * (halfWidth + 1.5), wy, wz - pz * (halfWidth + 1.5)));
+      out.push(new THREE.Vector3(wx - px * (halfWidth + 1.5), wy - shoulderDrop(1.5), wz - pz * (halfWidth + 1.5)));
     }
     return out;
   }, [points, halfWidth, road.features.signal_count, signalActive]);
@@ -107,7 +112,7 @@ export function Infrastructure({ road, guardrailActive, lightingActive, sidewalk
       const [px, pz] = perpendicular(p.ribbonHeading);
       const [wx, wy, wz] = toWorld(p.x, p.y, p.elev);
       out.push({
-        pos: new THREE.Vector3(wx + px * (halfWidth + 1.5), wy, wz + pz * (halfWidth + 1.5)),
+        pos: new THREE.Vector3(wx + px * (halfWidth + 1.5), wy - shoulderDrop(1.5), wz + pz * (halfWidth + 1.5)),
         rotY: -p.heading,
       });
     }
@@ -175,7 +180,7 @@ export function Infrastructure({ road, guardrailActive, lightingActive, sidewalk
         const [wx, wy, wz] = toWorld(p.x, p.y, p.elev);
         const [px, pz] = perpendicular(p.ribbonHeading);
         return (
-          <group key={i} position={[wx - px * (halfWidth + 1), wy, wz - pz * (halfWidth + 1)]}
+          <group key={i} position={[wx - px * (halfWidth + 1), wy - shoulderDrop(1), wz - pz * (halfWidth + 1)]}
             onPointerOver={() => setHoveredHazard(i)} onPointerOut={() => setHoveredHazard(null)}>
             <Clone object={warningGltf.scene} scale={hoveredHazard === i ? WARNING_SIGN_SCALE * 1.15 : WARNING_SIGN_SCALE} />
             <Clone object={coneGltf.scene} position={[1.4, 0, 0.6]} scale={CONE_SCALE} />

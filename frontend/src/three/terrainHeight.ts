@@ -54,6 +54,38 @@ export function terrainSeedFor(roadId: string, pointCount: number): number {
   return roadId.length + pointCount;
 }
 
+/**
+ * How far the ground sits BELOW the road surface inside the corridor.
+ *
+ * The corridor used to be pinned to exactly the road's elevation, which made the
+ * carriageway and the ground coplanar. Two things then push the ground through
+ * the road: (1) the terrain mesh only samples this function on a ~13-unit grid
+ * (256 segments over a 3400+ unit plane) while the road is 6.8 units wide, so the
+ * surface actually rendered between grid vertices is a linear interpolation that
+ * overshoots wherever the road's elevation profile curves; (2) near a switchback,
+ * adjacent grid vertices snap to *different arms* of the hairpin, which sit at
+ * different heights, so the interpolated ground steps straight across the road.
+ *
+ * Real roads are built up on an embankment rather than laid flush into the dirt,
+ * so dropping the corridor and giving the road a shoulder (see Road.tsx) fixes the
+ * clipping and is closer to how a road actually sits in the landscape. The value
+ * has to exceed the grid's interpolation error, which is ~0.5-0.9 units here.
+ */
+export const EMBANKMENT_DROP = 0.9;
+
+/** Horizontal run of the embankment slope, from the carriageway edge out to where
+ * the ground levels off. Road.tsx draws the slope; Infrastructure.tsx uses the
+ * same pair of constants to sit roadside props ON that slope instead of leaving
+ * them floating at carriageway height. */
+export const SHOULDER_WIDTH = 1.8;
+
+/** Height of a roadside object `lateralOffset` metres out from the road EDGE:
+ * carriageway level at the edge, full ground level once past the shoulder. */
+export function shoulderDrop(lateralOffset: number): number {
+  const t = Math.min(1, Math.max(0, lateralOffset / SHOULDER_WIDTH));
+  return EMBANKMENT_DROP * t;
+}
+
 export interface TerrainHeightSampler {
   /** Absolute elevation at a WORLD (x, z) — same units/frame as toWorld()'s elev axis. */
   height(worldX: number, worldZ: number): number;
@@ -76,8 +108,16 @@ export function createTerrainHeightSampler(
   seed = 1
 ): TerrainHeightSampler {
   const fbm = makeFbm(seed);
-  const ridgeAmplitude = isHilly ? 22 : 5;
-  const feather = halfWidth + 6;
+  // Enough relief to actually read as hills once the scene is lit by a real sky —
+  // at 22/5 under daylight the ground was a flat green field with a dead-straight
+  // horizon, which is not what a Western Ghats ghat road sits in.
+  const ridgeAmplitude = isHilly ? 34 : 9;
+  // The corridor kept flat around the road is widened to match. With the old
+  // halfWidth+6 feather, terrain at full ridge amplitude started within ~30m of the
+  // carriageway, so a hill could rise between the camera and the road and swallow
+  // it. Holding the road in an open valley and pushing the hills further out keeps
+  // the sightline clear while still giving the horizon some shape.
+  const feather = halfWidth + 22;
 
   function nearestOnPath(x: number, y: number) {
     let bestD2 = Infinity;
@@ -105,12 +145,14 @@ export function createTerrainHeightSampler(
     const ridge = fbm(worldX, worldZ) * ridgeAmplitude;
     if (points.length < 2) return ridge;
     const { dist, elev } = nearestOnPath(x, y);
-    const t = smoothstep(feather, feather * 3, dist);
+    const t = smoothstep(feather, feather * 4, dist);
     // Always anchored to the nearest road point's own elevation, not just the
     // noise field's absolute value — otherwise hills far from the road snap back
     // toward 0 regardless of how high/low the road has climbed, creating a visible
     // discontinuity right at the feather boundary instead of a smooth hillside.
-    return elev + ridge * t;
+    // The corridor sits EMBANKMENT_DROP below the carriageway so the two surfaces
+    // are never coplanar (see the constant's note).
+    return elev - EMBANKMENT_DROP + ridge * t;
   }
 
   return { height, ridgeAmplitude };

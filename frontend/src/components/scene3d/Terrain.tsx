@@ -6,12 +6,14 @@ import { buildPath, toWorld, perpendicular } from "../../three/geometryUtils";
 import { groundTexture } from "../../three/textures";
 import { createTerrainHeightSampler, terrainSeedFor } from "../../three/terrainHeight";
 
-// Low valley / mid slope / high ridge tones, blended per-vertex by height. Cheap
-// (no shader work, just a BufferAttribute) but does most of the work of selling
-// "real terrain" instead of one flat-shaded material color across the whole plane.
-const VALLEY_COLOR = new THREE.Color("#161c29");
-const SLOPE_COLOR = new THREE.Color("#232c3d");
-const RIDGE_COLOR = new THREE.Color("#3a4558");
+// Low valley / mid slope / high ridge tints, blended per-vertex by height. These
+// MULTIPLY the ground texture (vertexColors + map), so they have to sit near white
+// — the previous near-black values (#161c29 etc.) were scaling the ground texture
+// down to ~8% brightness, which is most of why the terrain read as a black void
+// no matter what the noise/lighting did. Greener low ground, sun-bleached ridges.
+const VALLEY_COLOR = new THREE.Color("#a8b98c");
+const SLOPE_COLOR = new THREE.Color("#ffffff");
+const RIDGE_COLOR = new THREE.Color("#d9d2b6");
 
 export function Terrain({ road }: { road: Road }) {
   const points = useMemo(() => buildPath(road), [road]);
@@ -138,21 +140,25 @@ export function Terrain({ road }: { road: Road }) {
           <meshStandardMaterial
             ref={waterRef}
             map={waterTex}
-            color="#0e3a52"
-            roughness={0.1}
-            metalness={0.5}
+            color="#3f7fa6"
+            // metalness has to stay ~0 here: there is no environment map in the
+            // scene (the night HDRI was removed with the daylight conversion), and
+            // a metallic surface with nothing to reflect renders as a flat gray
+            // sheet — which is exactly how the lake was reading.
+            roughness={0.22}
+            metalness={0}
             transparent
-            opacity={0.88}
+            opacity={0.8}
           />
         </mesh>
       )}
 
       {cliffEdgeGeom && (
-        // Near-black rock face with no fill light of its own — the whole point is a
-        // sharp shadow falloff from the road edge into the drop so it reads as a
-        // genuine hazard, not just a differently-colored strip of ground.
+        // Exposed rock face — deliberately a different material read from the
+        // grassy ground above it, so the drop-off reads as a genuine hazard edge
+        // rather than the hillside simply continuing over the side.
         <mesh geometry={cliffEdgeGeom} receiveShadow>
-          <meshStandardMaterial map={cliffTex} color="#232833" roughness={1} metalness={0} side={THREE.DoubleSide} />
+          <meshStandardMaterial map={cliffTex} color="#9d9382" roughness={1} metalness={0} side={THREE.DoubleSide} />
         </mesh>
       )}
     </group>

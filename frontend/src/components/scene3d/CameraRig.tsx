@@ -51,14 +51,27 @@ export function CameraRig({ road, flyTrigger }: Props) {
     // Approach from a consistent 3/4 angle (not purely behind the start heading),
     // biased toward the first third of the road so the initial curve reads clearly.
     const focus = worldPts[Math.max(1, Math.min(worldPts.length - 1, Math.floor(worldPts.length * 0.3)))];
-    const dist = diag * 0.62;
+    // Framing the WHOLE bounding box meant a 600-900m road was fit to the screen,
+    // which puts the camera ~500 units out — at a 45 deg fov that renders a 7m
+    // carriageway about two pixels wide, so the "digital twin" read as a thread.
+    // Clamp to a hero distance instead: close enough that the road, its markings,
+    // guardrail and vehicles are legible, and let the user orbit out if they want
+    // the whole extent. The eye-height factor is lowered too (0.75 -> 0.45) for a
+    // road-level 3/4 view rather than a near-plan one.
+    const dist = Math.max(70, Math.min(190, diag * 0.5));
     const bx = focus[0] - dist * 0.68;
     const bz = focus[2] + dist * 0.68;
-    const by = focus[1] + dist * 0.75;
+    // Eye height is what sets the pitch, and the pitch is what decides whether you
+    // see a road in a landscape or a map. At the old 0.75 factor (with a target
+    // lifted by diag*0.03) the settled shot looked ~20 deg down with the horizon
+    // pushed off the top of a 45 deg frame — no sky, and the road flattened into a
+    // thread on a green field. 0.28 against a near-flat target lands about 15 deg:
+    // curvature still reads, horizon and sky stay in frame.
+    const by = focus[1] + dist * 0.28;
 
-    overviewPos.current.set(cx, diag * 1.3, cz + diag * 0.3);
+    overviewPos.current.set(cx, Math.min(diag * 1.3, 520), cz + diag * 0.3);
     endPos.current.set(bx, by, bz);
-    endTarget.current.set(focus[0], focus[1] + diag * 0.03, focus[2]);
+    endTarget.current.set(focus[0], focus[1] + 3, focus[2]);
 
     camera.position.copy(overviewPos.current);
     camera.lookAt(cx, cy, cz);

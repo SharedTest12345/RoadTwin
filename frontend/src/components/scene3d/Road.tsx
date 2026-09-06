@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { Road as RoadT } from "../../types";
 import { buildPath, toWorld, perpendicular, riskColor } from "../../three/geometryUtils";
 import { asphaltTexture } from "../../three/textures";
+import { EMBANKMENT_DROP, SHOULDER_WIDTH } from "../../three/terrainHeight";
 
 function ribbonGeometry(points: ReturnType<typeof buildPath>, halfWidth: number, yOffset: number) {
   const geom = new THREE.BufferGeometry();
@@ -15,6 +16,40 @@ function ribbonGeometry(points: ReturnType<typeof buildPath>, halfWidth: number,
     positions.push(wx - px * halfWidth, wy, wz - pz * halfWidth);
     positions.push(wx + px * halfWidth, wy, wz + pz * halfWidth);
     uvs.push(0, p.s / 4, 1, p.s / 4);
+  }
+  const indices: number[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
+    indices.push(a, b, c, b, d, c);
+  }
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
+/** The embankment slope from the carriageway edge down to the surrounding ground.
+ * The terrain corridor now sits EMBANKMENT_DROP below the road (see
+ * terrainHeight.ts) so the two surfaces can't be coplanar and clip through each
+ * other; without this skirt the road would simply hang over that gap. */
+function shoulderGeometry(
+  points: ReturnType<typeof buildPath>,
+  halfWidth: number,
+  side: 1 | -1
+) {
+  const geom = new THREE.BufferGeometry();
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const [px, pz] = perpendicular(p.ribbonHeading);
+    const [wx, wy, wz] = toWorld(p.x, p.y, p.elev);
+    const inner = halfWidth * side;
+    const outer = (halfWidth + SHOULDER_WIDTH) * side;
+    positions.push(wx + px * inner, wy, wz + pz * inner);
+    positions.push(wx + px * outer, wy - EMBANKMENT_DROP, wz + pz * outer);
+    uvs.push(0, p.s / 6, 1, p.s / 6);
   }
   const indices: number[] = [];
   for (let i = 0; i < points.length - 1; i++) {
@@ -62,6 +97,8 @@ export function Road({ road }: { road: RoadT }) {
     () => (road.features.has_sidewalk ? stripGeometry(points, halfWidth + 0.9, 0.8, 0.08) : null),
     [points, halfWidth, road.features.has_sidewalk]
   );
+  const shoulderLeft = useMemo(() => shoulderGeometry(points, halfWidth, -1), [points, halfWidth]);
+  const shoulderRight = useMemo(() => shoulderGeometry(points, halfWidth, 1), [points, halfWidth]);
 
   const color = riskColor(road.risk.category);
   const asphalt = useMemo(() => {
@@ -79,6 +116,13 @@ export function Road({ road }: { road: RoadT }) {
           that one segment. Default front-side-only materials made that stretch
           backface-culled — geometrically present but invisible from the normal
           top-down chase camera, reading as the road vanishing mid-path. */}
+      {/* Graded gravel/dirt shoulder either side, drawn before the carriageway so
+          the asphalt reads as sitting on top of the embankment. */}
+      {[shoulderLeft, shoulderRight].map((g, i) => (
+        <mesh key={i} geometry={g} receiveShadow castShadow>
+          <meshStandardMaterial color="#7a7059" roughness={1} metalness={0} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
       <mesh geometry={surfaceGeom} receiveShadow>
         <meshStandardMaterial map={asphalt} roughness={0.95} metalness={0.05} side={THREE.DoubleSide} />
       </mesh>
