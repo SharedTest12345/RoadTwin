@@ -10,6 +10,9 @@ backend/**/*.pyc
 backend/uvicorn*.log
 backend/roadtwin.db
 backend/accidents.db
+US_Accidents_March23.csv
+archive.zip
+build_accident_grid.log
 
 # Editor / OS
 .DS_Store

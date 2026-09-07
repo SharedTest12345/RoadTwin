@@ -134,6 +134,60 @@ CATALOG: List[InterventionDef] = [
 
 BY_ID: Dict[str, InterventionDef] = {d.id: d for d in CATALOG}
 
+# Real 2024/2025 US unit-cost ranges (contractor/municipal bid-price data for
+# guardrail/streetlight/sidewalk/striping; FHWA HSIP project summaries and
+# RRFB industry pricing for crossings) — using each range's midpoint as one
+# representative rate, same "explainable estimate, not a fabricated number"
+# posture risk_engine.py already uses for its point weights. A flat per-road
+# total regardless of the road's actual length priced a 150m residential
+# street identically to a 2.5km corridor for anything genuinely built by the
+# linear foot — those five now scale with the road's real geometry.length_m
+# (or crossing count / pole count derived from it) instead. signal_control
+# ($150k-250k for a new intersection signal) and speed_reduction (signage +
+# a couple of humps) stay flat: a signal serves one intersection regardless
+# of corridor length, and neither is continuous linear construction.
+M_TO_FT = 3.28084
+
+GUARDRAIL_COST_PER_FT = 38.0          # $30-45/lf W-beam, installed
+GUARDRAIL_END_TERMINAL_COST = 4500.0  # $2,500-6,500 each, two ends per run
+GUARDRAIL_MIN_COST = 8000.0           # mobilization floor for a short run
+
+STREETLIGHT_COST_PER_POLE = 5300.0    # $3,000-7,600 per pole, fully installed
+STREETLIGHT_SPACING_M = 48.0          # matches Infrastructure.tsx's LAMP_SPACING_M
+
+SIDEWALK_COST_PER_FT = 60.0           # $25-75/lf, one side, ADA-compliant concrete
+SIDEWALK_MIN_COST = 10000.0           # concrete-contractor mobilization floor
+
+CROSSING_COST_EACH = 12500.0          # RRFB/signalized crossing, $10k-15k
+CROSSINGS_ADDED_PER_KM = 2.5          # matches _crossing()'s own density bump
+
+MARKINGS_COST_PER_FT = 0.70           # thermoplastic re-striping, ~$0.62-0.74/lf
+MARKINGS_MIN_COST = 1500.0            # crew mobilization floor
+
+
+def _cost_estimate(intervention_id: str, f: RoadFeatures) -> float:
+    """Per-road real-dollar estimate for the length/count-scaled interventions;
+    falls back to the flat CATALOG constant (signal_control, speed_reduction,
+    and any future id) unchanged."""
+    length_ft = f.length_m * M_TO_FT
+    if intervention_id == "guardrail":
+        cost = length_ft * GUARDRAIL_COST_PER_FT + 2 * GUARDRAIL_END_TERMINAL_COST
+        return round(max(cost, GUARDRAIL_MIN_COST) / 500) * 500
+    if intervention_id == "street_lighting":
+        poles = max(1, round(f.length_m / STREETLIGHT_SPACING_M))
+        return round(poles * STREETLIGHT_COST_PER_POLE / 500) * 500
+    if intervention_id == "sidewalk":
+        cost = length_ft * SIDEWALK_COST_PER_FT
+        return round(max(cost, SIDEWALK_MIN_COST) / 500) * 500
+    if intervention_id == "pedestrian_crossing":
+        crossings = max(1.0, CROSSINGS_ADDED_PER_KM * (f.length_m / 1000))
+        return round(crossings * CROSSING_COST_EACH / 500) * 500
+    if intervention_id == "road_markings":
+        cost = length_ft * MARKINGS_COST_PER_FT
+        return round(max(cost, MARKINGS_MIN_COST) / 500) * 500
+    d = BY_ID.get(intervention_id)
+    return d.cost_estimate_usd if d else 0.0
+
 # Real-crash-pattern thresholds: an intervention only gets tagged with evidence
 # when this road's own nearby crash mix is MEANINGFULLY above the national
 # baseline for that condition (accident_data.NATIONAL_*_PCT — computed from
@@ -235,7 +289,7 @@ def get_catalog(features: RoadFeatures) -> List[InterventionOption]:
         if not applicable:
             continue
         out.append(InterventionOption(
-            id=d.id, name=d.name, category=d.category, cost_estimate_usd=d.cost_estimate_usd,
+            id=d.id, name=d.name, category=d.category, cost_estimate_usd=_cost_estimate(d.id, features),
             complexity=d.complexity, description=d.description,
             applicable=True, applicable_reason=None, evidence=ev,
         ))
@@ -259,8 +313,8 @@ def apply_interventions(features: RoadFeatures, ids: List[str]) -> Tuple[RoadFea
     return f, sim_overrides, twin_changes
 
 
-def total_cost(ids: List[str]) -> float:
-    return sum(BY_ID[i].cost_estimate_usd for i in ids if i in BY_ID)
+def total_cost(ids: List[str], features: RoadFeatures) -> float:
+    return sum(_cost_estimate(i, features) for i in ids if i in BY_ID)
 
 
 def names_for(ids: List[str]) -> List[str]:

@@ -41,10 +41,10 @@ def optimize(geometry: RoadGeometry, features: RoadFeatures, objective: str,
     applicable_ids = [o.id for o in ie.get_catalog(features) if o.applicable]
 
     evaluations: List[ComboEvaluation] = []
-    max_cost = max(ie.total_cost(applicable_ids), 1.0)
+    max_cost = max(ie.total_cost(applicable_ids, features), 1.0)
 
     for combo in _powerset(applicable_ids):
-        cost = ie.total_cost(combo)
+        cost = ie.total_cost(combo, features)
         if budget_cap is not None and cost > budget_cap:
             continue
         new_features, sim_overrides, _twin = ie.apply_interventions(features, combo)

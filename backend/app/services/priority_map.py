@@ -43,7 +43,7 @@ def _estimate_fix_cost(road: Road) -> float:
         ids.append("pedestrian_crossing")
     if f.intersection_density_per_km > 3 and f.signal_count == 0:
         ids.append("signal_control")
-    return max(ie.total_cost(ids), 10000.0)
+    return max(ie.total_cost(ids, f), 10000.0)
 
 
 def _entry(road: Road) -> PriorityMapEntry:
