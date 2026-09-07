@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Road } from "../../../types";
-import { buildPath, toWorld, perpendicular, roadHalfWidth, pathWorldBounds } from "../../../three/geometryUtils";
+import { buildPath, toWorld, perpendicular, roadHalfWidth, pathWorldBounds, terrainPlaneSize } from "../../../three/geometryUtils";
 import { groundTexture } from "../../../three/textures";
 import { createTerrainHeightSampler, terrainSeedFor } from "../../../three/terrainHeight";
 
@@ -29,9 +29,7 @@ export function Terrain({ road }: { road: Road }) {
   // edge peek out under an extreme user-driven zoom-out (maxDistance=700 on
   // OrbitControls), but reads as an actual road-sized patch of terrain instead
   // of a mostly-empty field for the overwhelming majority of camera positions.
-  const TERRAIN_MARGIN_M = 130;
-  const sizeX = Math.max(bounds.maxX - bounds.minX + TERRAIN_MARGIN_M * 2, 500);
-  const sizeZ = Math.max(bounds.maxZ - bounds.minZ + TERRAIN_MARGIN_M * 2, 500);
+  const { sizeX, sizeZ } = terrainPlaneSize(bounds);
 
   // Single ground-truth height function shared by the terrain mesh below and (via
   // the road's own per-point elevation, which this sampler blends toward near the

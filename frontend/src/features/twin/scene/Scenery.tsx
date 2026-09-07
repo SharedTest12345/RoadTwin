@@ -1,14 +1,39 @@
 import { useMemo } from "react";
-import { useGLTF, Clone } from "@react-three/drei";
+import { useGLTF, Clone, Merged } from "@react-three/drei";
 import * as THREE from "three";
 import type { Road } from "../../../types";
-import { buildPath, toWorld, perpendicular, seededRng, sampleAlongPath, roadHalfWidth } from "../../../three/geometryUtils";
-import { buildingTextures } from "../../../three/textures";
+import {
+  buildPath, toWorld, perpendicular, seededRng, sampleAlongPath, roadHalfWidth,
+  pathWorldBounds, terrainPlaneSize,
+} from "../../../three/geometryUtils";
+import { buildingTextures, rockTexture } from "../../../three/textures";
 import { TREE_MODELS, BUILDING_MODELS } from "../../../three/sceneryModels";
 import { createTerrainHeightSampler, terrainSeedFor } from "../../../three/terrainHeight";
 
 interface TreeSpec { pos: [number, number, number]; rotY: number; scale: number; model: number }
 interface BuildingSpec { pos: [number, number, number]; rotY: number; scale: number; model: number }
+interface RockSpec { pos: [number, number, number]; rotY: number; scale: number; geom: number }
+
+// Low-poly rock scatter: a handful of shared geometry variants (built once at
+// module load, not per-road — it's just a shape, nothing road-specific) from a
+// jittered, vertically-squashed icosahedron. Procedural rather than a GLTF like
+// the tree/building models because this environment has no network access to
+// fetch new assets (see sceneryModels.ts) — this needs zero new files.
+function makeRockGeometry(seed: number): THREE.BufferGeometry {
+  const geom = new THREE.IcosahedronGeometry(1, 1);
+  const pos = geom.attributes.position as THREE.BufferAttribute;
+  let h = seed;
+  const rand = () => { h = (h * 9301 + 49297) % 233280; return h / 233280; };
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    v.multiplyScalar(0.75 + rand() * 0.45);
+    pos.setXYZ(i, v.x, v.y * 0.65, v.z); // squash — rocks sit low and wide, not spherical
+  }
+  geom.computeVertexNormals();
+  return geom;
+}
+const ROCK_GEOMETRIES = [101, 138, 175, 212, 249].map(makeRockGeometry);
 
 /** Real OSM building footprints, extruded to their actual outline (not a random
  * box or a generic model). `ring` is already in the road's local meter frame
@@ -90,10 +115,56 @@ export function Scenery({ road }: { road: Road }) {
     [points, halfWidth, isHilly, road.id]
   );
 
-  const { trees, buildings } = useMemo(() => {
+  const bounds = useMemo(() => pathWorldBounds(points), [points]);
+  const { sizeX, sizeZ } = terrainPlaneSize(bounds);
+  const rockTex = useMemo(() => rockTexture(), []);
+
+  // Perf: a road can carry 1000+ tree/rock instances (roadside rows + the
+  // far-field scatter above), and rendering each as its own <Clone>/<mesh>
+  // means that many separate draw calls + shadow casters — the actual
+  // source of the lag, not the placement math. Every tree GLTF (verified via
+  // GLTFLoader directly: two meshes, "woodBark" + "leafsGreen", both at
+  // local-identity transform, no baked offset) and every rock (one shared
+  // procedural geometry per variant) collapses into ONE InstancedMesh per
+  // (model, part) via drei's <Merged> — a handful of draw calls total
+  // regardless of instance count, GPU-instanced instead of CPU-duplicated.
+  const treeMeshes = useMemo(() => {
+    const out: Record<string, THREE.Mesh> = {};
+    treeGltfs.forEach((gltf, modelIdx) => {
+      let part = 0;
+      gltf.scene.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) {
+          out[`t${modelIdx}_${part}`] = o as THREE.Mesh;
+          part++;
+        }
+      });
+    });
+    return out;
+  }, [treeGltfs]);
+  const treePartsByModel = useMemo(() => {
+    const byModel: string[][] = TREE_MODELS.map(() => []);
+    for (const key of Object.keys(treeMeshes)) {
+      const modelIdx = parseInt(key.slice(1).split("_")[0], 10);
+      byModel[modelIdx]?.push(key);
+    }
+    return byModel;
+  }, [treeMeshes]);
+
+  const rockMaterial = useMemo(
+    () => new THREE.MeshStandardMaterial({ map: rockTex, roughness: 1, metalness: 0.05 }),
+    [rockTex]
+  );
+  const rockMeshes = useMemo(() => {
+    const out: Record<string, THREE.Mesh> = {};
+    ROCK_GEOMETRIES.forEach((geom, i) => { out[`r${i}`] = new THREE.Mesh(geom, rockMaterial); });
+    return out;
+  }, [rockMaterial]);
+
+  const { trees, buildings, rocks } = useMemo(() => {
     const treeSpecs: TreeSpec[] = [];
     const bldgSpecs: BuildingSpec[] = [];
-    if (points.length < 2) return { trees: treeSpecs, buildings: bldgSpecs };
+    const rockSpecs: RockSpec[] = [];
+    if (points.length < 2) return { trees: treeSpecs, buildings: bldgSpecs, rocks: rockSpecs };
 
     // Flat world-space (x, z) for every point on the WHOLE road, checked
     // against every candidate placement below. Offsetting purely by the
@@ -172,33 +243,77 @@ export function Scenery({ road }: { road: Road }) {
             bldgSpecs.push({ pos: [ox, oy, oz], rotY, scale: 3.5 + rng() * 4.5, model: Math.floor(rng() * BUILDING_MODELS.length) });
           } else {
             if (hasRealBuildings && insideAnyBuilding(ox, oz)) continue;
-            treeSpecs.push({ pos: [ox, oy, oz], rotY, scale: 1.3 + rng() * 1.2, model: Math.floor(rng() * TREE_MODELS.length) });
+            // Roadside clutter reading as "all identical trees in a row" felt
+            // artificial — a real verge mixes in the odd boulder among the
+            // trees, especially on rural/hilly roads.
+            if (!urban && rng() < 0.18) {
+              rockSpecs.push({ pos: [ox, oy, oz], rotY, scale: 0.6 + rng() * 1.3, geom: Math.floor(rng() * ROCK_GEOMETRIES.length) });
+            } else {
+              // Wide, uniform-random range rather than a narrow band around one
+              // "normal tree" size — real treelines mix saplings, ordinary
+              // trees, and the odd old-growth giant that reads as tall as a
+              // small building next to the road, not a uniform hedge.
+              treeSpecs.push({ pos: [ox, oy, oz], rotY, scale: 1.6 + rng() * 5.4, model: Math.floor(rng() * TREE_MODELS.length) });
+            }
           }
         }
       }
     }
 
     // Front row: tight spacing, high odds, close to the shoulder.
-    placeRow(urban ? 9 : 12, urban ? 0.75 : 0.62, urban ? 6 : 4, urban ? 5 : 10, halfWidth + 8);
+    placeRow(urban ? 6 : 8, urban ? 0.88 : 0.8, urban ? 6 : 4, urban ? 5 : 10, halfWidth + 8);
     // Back row: wider spacing, lower odds (avoids a uniform wall), set well
     // back so it reads as a second depth layer rather than doubling the front row.
-    placeRow(urban ? 16 : 22, urban ? 0.4 : 0.32, urban ? 14 : 18, urban ? 10 : 16, halfWidth + 8);
+    placeRow(urban ? 11 : 15, urban ? 0.6 : 0.5, urban ? 14 : 18, urban ? 10 : 16, halfWidth + 8);
 
-    return { trees: treeSpecs, buildings: bldgSpecs };
-  }, [points, halfWidth, rng, urban, road.cliff_scenario, hasRealBuildings, sampler]);
+    // Both rows above stay within a fairly thin band of the road (halfWidth +
+    // up to ~34m) — everywhere past that, out to the actual edge of Terrain's
+    // ground plane, was bare textured ground with nothing on it at all. This
+    // scatters sparse bushes/rocks across the FULL terrain footprint instead,
+    // so the whole visible patch of ground has something on it, not just a
+    // roadside fringe with an empty field beyond it.
+    const halfX = sizeX / 2, halfZ = sizeZ / 2;
+    const farStep = 20;
+    for (let fx = -halfX; fx < halfX; fx += farStep) {
+      for (let fz = -halfZ; fz < halfZ; fz += farStep) {
+        if (rng() > 0.28) continue;
+        const ox = bounds.centerX + fx + (rng() - 0.5) * farStep;
+        const oz = bounds.centerZ + fz + (rng() - 0.5) * farStep;
+        if (!clearOfRoad(ox, oz, halfWidth + 8)) continue;
+        if (hasRealBuildings && insideAnyBuilding(ox, oz)) continue;
+        const oy = sampler.height(ox, oz);
+        const rotY = rng() * Math.PI * 2;
+        if (rng() < 0.35) {
+          rockSpecs.push({ pos: [ox, oy, oz], rotY, scale: 0.5 + rng() * 1.4, geom: Math.floor(rng() * ROCK_GEOMETRIES.length) });
+        } else {
+          // Still random-sized (small bush up to another building-scale
+          // giant), just a lower ceiling on average than the roadside rows
+          // so the middle distance reads as a depth layer, not a duplicate
+          // front row.
+          treeSpecs.push({ pos: [ox, oy, oz], rotY, scale: 0.8 + rng() * 3.6, model: Math.floor(rng() * TREE_MODELS.length) });
+        }
+      }
+    }
+
+    return { trees: treeSpecs, buildings: bldgSpecs, rocks: rockSpecs };
+  }, [points, halfWidth, rng, urban, road.cliff_scenario, hasRealBuildings, sampler, bounds, sizeX, sizeZ]);
 
   return (
     <group>
-      {trees.map((t, i) => (
-        <Clone
-          key={i}
-          object={treeGltfs[t.model].scene}
-          position={t.pos}
-          rotation={[0, t.rotY, 0]}
-          scale={t.scale}
-          castShadow
-        />
-      ))}
+      <Merged meshes={treeMeshes} castShadow limit={1500}>
+        {(instances: Record<string, React.ComponentType<any>>) => (
+          <>
+            {trees.map((t, i) => (
+              <group key={i} position={t.pos} rotation={[0, t.rotY, 0]} scale={t.scale}>
+                {treePartsByModel[t.model]?.map((key) => {
+                  const TreePart = instances[key];
+                  return <TreePart key={key} />;
+                })}
+              </group>
+            ))}
+          </>
+        )}
+      </Merged>
       {hasRealBuildings && <RealBuildings road={road} points={points} terrainHeight={sampler.height} />}
       {buildings.map((b, i) => (
         <Clone
@@ -211,6 +326,16 @@ export function Scenery({ road }: { road: Road }) {
           receiveShadow
         />
       ))}
+      <Merged meshes={rockMeshes} castShadow receiveShadow limit={1000}>
+        {(instances: Record<string, React.ComponentType<any>>) => (
+          <>
+            {rocks.map((r, i) => {
+              const RockPart = instances[`r${r.geom}`];
+              return <RockPart key={i} position={r.pos} rotation={[0, r.rotY, 0]} scale={r.scale} />;
+            })}
+          </>
+        )}
+      </Merged>
     </group>
   );
 }

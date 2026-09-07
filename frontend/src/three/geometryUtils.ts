@@ -168,6 +168,12 @@ export interface WorldBounds {
   minElev: number; maxElev: number;
 }
 
+/** How far past the road's own bounding box Terrain.tsx's ground plane extends —
+ * shared with Scenery.tsx so far-field prop scatter (rocks, back-of-terrain
+ * trees) covers exactly the same patch of ground the mesh actually draws,
+ * instead of guessing its own margin and drifting from the real terrain edge. */
+export const TERRAIN_MARGIN_M = 130;
+
 /** World-space (x, z) bounding box of a road's own path — the SAME box Terrain.tsx
  * sizes/centers its ground plane from. A road's local_xy is centered on its own
  * centroid (see feature_extraction.py's ref_lat/ref_lon), NOT necessarily on world
@@ -188,6 +194,17 @@ export function pathWorldBounds(points: PathPoint[]): WorldBounds {
   if (!isFinite(minX)) { minX = maxX = minZ = maxZ = 0; }
   if (!isFinite(minElev)) { minElev = maxElev = 0; }
   return { minX, maxX, minZ, maxZ, centerX: (minX + maxX) / 2, centerZ: (minZ + maxZ) / 2, minElev, maxElev };
+}
+
+/** Terrain.tsx's actual ground-plane footprint (bounds padded by TERRAIN_MARGIN_M,
+ * floored to a 500m minimum) — Scenery.tsx's far-field prop scatter needs this
+ * exact size to cover the same patch of ground the mesh draws, not its own
+ * guess that can drift from Terrain.tsx's. */
+export function terrainPlaneSize(bounds: WorldBounds): { sizeX: number; sizeZ: number } {
+  return {
+    sizeX: Math.max(bounds.maxX - bounds.minX + TERRAIN_MARGIN_M * 2, 500),
+    sizeZ: Math.max(bounds.maxZ - bounds.minZ + TERRAIN_MARGIN_M * 2, 500),
+  };
 }
 
 /** Convenience wrapper for callers (e.g. WeatherEffects) that don't already have

@@ -29,17 +29,98 @@ function speckleCanvas(size: number, base: string, variants: [string, number][],
   return canvas;
 }
 
+// Ground needs more than speckleCanvas's uniform fine grain gives it: at the
+// tile counts a large terrain plane repeats a texture (Terrain.tsx sets
+// repeat ~sizeX/14, easily 40-50×), pure fine speckle averages out to a flat
+// painted color at a glance — no large-scale variation, and every "grain" is
+// a soft round dot, nothing reads as an actual blade of grass. This layers
+// three passes: big soft blotches (low-frequency color variation so the tile
+// seams/repetition don't read as one flat sheet), fine speckle (grain), and
+// short angled strokes (the one thing round dots can't give — something that
+// actually reads as directional grass texture up close).
+function grassCanvas(
+  size: number,
+  base: string,
+  variants: [color: string, blotchCount: number, speckleCount: number][],
+  bladeColors: string[],
+  seed: number,
+): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+
+  let h = seed;
+  const rand = () => { h = (h * 9301 + 49297) % 233280; return h / 233280; };
+
+  for (const [color, blotchCount] of variants) {
+    ctx.fillStyle = color;
+    for (let i = 0; i < blotchCount; i++) {
+      const x = rand() * size, y = rand() * size, r = size * (0.07 + rand() * 0.13);
+      ctx.globalAlpha = 0.05 + rand() * 0.07;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  for (const [color, , speckleCount] of variants) {
+    ctx.fillStyle = color;
+    for (let i = 0; i < speckleCount; i++) {
+      const x = rand() * size, y = rand() * size, r = 0.5 + rand() * 1.6;
+      ctx.globalAlpha = 0.15 + rand() * 0.3;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.lineWidth = 1;
+  for (const color of bladeColors) {
+    ctx.strokeStyle = color;
+    for (let i = 0; i < 1600; i++) {
+      const x = rand() * size, y = rand() * size;
+      const len = 2 + rand() * 4;
+      const ang = -Math.PI / 2 + (rand() - 0.5) * 1.1; // mostly-vertical, slight lean
+      ctx.globalAlpha = 0.3 + rand() * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  return canvas;
+}
+
 // Daylight ground: scrubby hillside green for steep/ghat roads, drier verge green
 // for flat ones. The previous dark-slate palette was chosen for a night scene, and
 // under a real sky it read as tarmac stretching to the horizon rather than ground.
 export function groundTexture(isHilly: boolean): THREE.CanvasTexture {
   const canvas = isHilly
-    ? speckleCanvas(256, "#5d6b42", [["#6d7c4e", 900], ["#4a5636", 900], ["#7d8a5f", 250]], 7)
-    : speckleCanvas(256, "#6b7550", [["#7a8560", 700], ["#57603f", 700], ["#8a9470", 200]], 11);
+    ? grassCanvas(512, "#5d6b42",
+        [["#6d7c4e", 30, 1400], ["#4a5636", 30, 1400], ["#7d8a5f", 12, 400]],
+        ["#3c4629", "#8b9868"], 7)
+    : grassCanvas(512, "#6b7550",
+        [["#7a8560", 26, 1100], ["#57603f", 26, 1100], ["#8a9470", 10, 320]],
+        ["#434c2e", "#9aa679"], 11);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(24, 24);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// Low-poly rock scatter (Rocks.tsx) — reuses the same fine speckle grain as
+// asphalt/buildings, just in cool stone tones, so a rock face isn't a flat
+// solid gray.
+export function rockTexture(): THREE.CanvasTexture {
+  const canvas = speckleCanvas(128, "#8c877c", [["#9d9789", 500], ["#6f6a5f", 500], ["#b3ad9e", 150]], 5);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 4;
   return tex;
 }
