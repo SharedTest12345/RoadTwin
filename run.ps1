@@ -36,7 +36,16 @@ if ($Stop) {
 # --- backend dependencies -------------------------------------------------
 if (-not (Test-Path $venvPy)) {
     Write-Host "Creating the backend virtualenv..." -ForegroundColor Cyan
-    python -m venv (Join-Path $backend ".venv")
+    # pydantic-core has no prebuilt wheel yet for very new Python releases (e.g. 3.14),
+    # which forces a source build that fails without a Rust toolchain. Prefer 3.13/3.12.
+    $created = $false
+    foreach ($v in @("3.13", "3.12")) {
+        py "-$v" -m venv (Join-Path $backend ".venv") 2>$null
+        if ($LASTEXITCODE -eq 0) { $created = $true; break }
+    }
+    if (-not $created) {
+        python -m venv (Join-Path $backend ".venv")
+    }
     & $venvPy -m pip install --disable-pip-version-check -q -r (Join-Path $backend "requirements.txt")
 }
 

@@ -5,7 +5,7 @@ cd /d "%~dp0"
 
 if not exist "backend\.venv\Scripts\python.exe" (
     echo [setup] Creating backend venv...
-    py -m venv backend\.venv
+    py -3.13 -m venv backend\.venv 2>nul || py -3.12 -m venv backend\.venv 2>nul || py -m venv backend\.venv
     backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 )
 
