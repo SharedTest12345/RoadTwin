@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Road } from "../../../types";
-import { buildPath, toWorld, perpendicular, roadHalfWidth } from "../../../three/geometryUtils";
+import { buildPath, toWorld, perpendicular, roadHalfWidth, pathWorldBounds } from "../../../three/geometryUtils";
 import { groundTexture } from "../../../three/textures";
 import { createTerrainHeightSampler, terrainSeedFor } from "../../../three/terrainHeight";
 
@@ -15,18 +15,8 @@ const RIDGE_COLOR = new THREE.Color("#d9d2b6");
 
 export function Terrain({ road }: { road: Road }) {
   const points = useMemo(() => buildPath(road), [road]);
-  const bounds = useMemo(() => {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const p of points) {
-      const [wx, , wz] = toWorld(p.x, p.y, 0);
-      minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
-      minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
-    }
-    return { minX, maxX, minZ, maxZ };
-  }, [points]);
-
-  const centerX = (bounds.minX + bounds.maxX) / 2;
-  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const bounds = useMemo(() => pathWorldBounds(points), [points]);
+  const { centerX, centerZ } = bounds;
   const isHilly = road.features.slope_pct > 5;
   const halfWidth = roadHalfWidth(road);
 

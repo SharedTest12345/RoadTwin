@@ -102,7 +102,7 @@ interface RoadTwinState {
 async function fetchBaselineSim(roadId: string, set: (partial: Partial<RoadTwinState>) => void) {
   set({ simLoading: true });
   try {
-    const sim = await api.runSimulation(roadId, 30, []);
+    const sim = await api.runSimulation(roadId, 300, []);
     set({ sim, simLoading: false, simTime: 0, simPlaying: true });
   } catch {
     set({ simLoading: false });
@@ -236,7 +236,7 @@ export const useStore = create<RoadTwinState>((set, get) => ({
     try {
       const result = await api.simulateInterventions(road.id, staged);
       set({ interventionResult: result, twinOverrides: result.twin_changes, applyingIntervention: false, panel: "compare" });
-      const sim = await api.runSimulation(road.id, 30, staged);
+      const sim = await api.runSimulation(road.id, 300, staged);
       set({ sim, simTime: 0, simPlaying: true });
     } catch {
       set({ applyingIntervention: false });

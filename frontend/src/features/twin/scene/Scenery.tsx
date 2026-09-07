@@ -115,6 +115,28 @@ export function Scenery({ road }: { road: Road }) {
       return true;
     };
 
+    // Real building footprints are drawn exactly where OSM says the actual
+    // house/structure sits (see RealBuildings) — without this, procedural
+    // street trees (placed on a generic offset grid that knows nothing about
+    // those footprints) can land INSIDE a real building's outline and read as
+    // a tree growing through a house. toWorld's (x, y, elev) -> (x, elev, -y)
+    // means a world (ox, oz) candidate maps back to local (ox, -oz) for the
+    // point-in-polygon test against building_footprints_xy's own (x, y) rings.
+    const buildingRings = road.geometry.building_footprints_xy;
+    const insideAnyBuilding = (ox: number, oz: number) => {
+      const lx = ox, ly = -oz;
+      for (const ring of buildingRings) {
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const [xi, yi] = ring[i], [xj, yj] = ring[j];
+          const intersects = yi > ly !== yj > ly && lx < ((xj - xi) * (ly - yi)) / (yj - yi) + xi;
+          if (intersects) inside = !inside;
+        }
+        if (inside) return true;
+      }
+      return false;
+    };
+
     const total = points[points.length - 1].s;
 
     // A single distance-from-road offset ring left the scene reading noticeably
@@ -149,6 +171,7 @@ export function Scenery({ road }: { road: Road }) {
             // car/road — bumped up further as a deliberate visual-scale choice.
             bldgSpecs.push({ pos: [ox, oy, oz], rotY, scale: 3.5 + rng() * 4.5, model: Math.floor(rng() * BUILDING_MODELS.length) });
           } else {
+            if (hasRealBuildings && insideAnyBuilding(ox, oz)) continue;
             treeSpecs.push({ pos: [ox, oy, oz], rotY, scale: 1.3 + rng() * 1.2, model: Math.floor(rng() * TREE_MODELS.length) });
           }
         }

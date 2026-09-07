@@ -14,13 +14,16 @@ export function toWorld(x: number, y: number, elev: number): [number, number, nu
 
 // Per-lane half-width, in meters (the whole scene is ~1 unit = 1 meter — see
 // vehicle/prop model comments). 2.0 (≈4.0m/lane) matched a real US lane closely
-// but read as small on screen next to everything else at real scale — bumped
-// to 2.6 (≈5.2m/lane) as a deliberate visual-scale choice (not a realism one)
-// so the carriageway itself reads as substantially bigger, not just closer to
-// camera. Every scene file that draws the road/terrain corridor/roadside props
-// needs the SAME value, so it lives here once rather than as four independently-
-// drifting copies of the same formula.
-const HALF_WIDTH_PER_LANE_M = 2.6;
+// but read as small on screen next to everything else at real scale; 2.6
+// (≈5.2m/lane) was a first bump, still read as thin — 3.5 (≈7.0m/lane) as a
+// deliberate visual-scale choice (not a realism one) so the carriageway reads
+// as a genuinely thick/wide road, not just closer to camera. Every scene file
+// that draws the road/terrain corridor/roadside props needs the SAME value,
+// so it lives here once rather than as four independently-drifting copies of
+// the same formula — and the backend's traffic_sim.py LANE_WIDTH_M (vehicle
+// lane placement) has to be kept at exactly 2x this or vehicles drift off the
+// rendered lane center (see that file's own comment on the same constant).
+const HALF_WIDTH_PER_LANE_M = 3.5;
 
 export function roadHalfWidth(road: Road): number {
   return Math.max(2, road.features.lanes) * HALF_WIDTH_PER_LANE_M;
@@ -106,7 +109,7 @@ export function buildPath(road: Road): PathPoint[] {
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const pt = planarCurve.getPointAt(t);
-    const elev = -t * totalDrop + Math.sin(i * 1.7) * (slopeFrac > 0.05 ? 1.2 : 0.15);
+    const elev = -t * totalDrop;
     dense.push({ x: pt.x, y: pt.y, elev, hazard: false });
   }
 
@@ -152,6 +155,47 @@ export function buildPath(road: Road): PathPoint[] {
   }
 
   return points;
+}
+
+export interface WorldBounds {
+  minX: number; maxX: number; minZ: number; maxZ: number;
+  centerX: number; centerZ: number;
+  // Range of the road's OWN authored elevation profile (buildPath's p.elev) —
+  // NOT the full terrain height range (that also adds fBm ridge noise and
+  // EMBANKMENT_DROP on top, see terrainHeight.ts) but the base a caller needs
+  // to combine with a TerrainHeightSampler's own ridgeAmplitude to bound the
+  // real ground height anywhere under this road's terrain patch.
+  minElev: number; maxElev: number;
+}
+
+/** World-space (x, z) bounding box of a road's own path — the SAME box Terrain.tsx
+ * sizes/centers its ground plane from. A road's local_xy is centered on its own
+ * centroid (see feature_extraction.py's ref_lat/ref_lon), NOT necessarily on world
+ * origin, and a long route's bounds can run well past a small fixed box around
+ * (0,0,0) — anything that needs to cover "the whole visible map" (weather, fog
+ * distance, etc.) has to size itself off THIS, not assume the road sits near
+ * origin or fits some fixed span. Kept here as the one shared computation rather
+ * than each caller re-deriving its own (slightly different, easy to drift) bounds. */
+export function pathWorldBounds(points: PathPoint[]): WorldBounds {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let minElev = Infinity, maxElev = -Infinity;
+  for (const p of points) {
+    const [wx, , wz] = toWorld(p.x, p.y, 0);
+    minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
+    minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
+    minElev = Math.min(minElev, p.elev); maxElev = Math.max(maxElev, p.elev);
+  }
+  if (!isFinite(minX)) { minX = maxX = minZ = maxZ = 0; }
+  if (!isFinite(minElev)) { minElev = maxElev = 0; }
+  return { minX, maxX, minZ, maxZ, centerX: (minX + maxX) / 2, centerZ: (minZ + maxZ) / 2, minElev, maxElev };
+}
+
+/** Convenience wrapper for callers (e.g. WeatherEffects) that don't already have
+ * `points` computed for anything else — Terrain.tsx should call pathWorldBounds
+ * directly with ITS OWN already-memoized points instead, to avoid running
+ * buildPath's Catmull-Rom resample twice per render. */
+export function roadWorldBounds(road: Road): WorldBounds {
+  return pathWorldBounds(buildPath(road));
 }
 
 /** Nearest point on `points` at arc-length `s`, linearly interpolated between the

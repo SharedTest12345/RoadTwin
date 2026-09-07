@@ -8,8 +8,10 @@ import type { WeatherPreset } from "../../../state/store";
 import { Terrain } from "./Terrain";
 import { Road } from "./Road";
 import { Scenery } from "./Scenery";
+import { SideRoads } from "./SideRoads";
 import { Infrastructure } from "./Infrastructure";
 import { Vehicles } from "./Vehicles";
+import { Pedestrians } from "./Pedestrians";
 import { CameraRig } from "./CameraRig";
 import { WeatherEffects } from "./WeatherEffects";
 
@@ -103,8 +105,10 @@ function SceneContent() {
       <Terrain road={road} />
       <Road road={road} sidewalkActive={sidewalkActive} />
       <Scenery road={road} />
+      <SideRoads road={road} />
       <Infrastructure
         road={road}
+        sim={sim}
         guardrailActive={guardrailActive}
         lightingActive={lightingActive}
         sidewalkActive={sidewalkActive}
@@ -113,12 +117,14 @@ function SceneContent() {
         speedBumpsActive={speedBumpsActive}
       />
       <Vehicles road={road} sim={sim} simTime={simTime} />
+      <Pedestrians road={road} sim={sim} simTime={simTime} />
     </>
   );
 }
 
 export function TwinScene() {
   const weatherPreset = useStore((s) => s.weatherPreset);
+  const road = useStore((s) => s.road);
   const w = WEATHER[weatherPreset];
 
   return (
@@ -155,7 +161,7 @@ export function TwinScene() {
       />
       <Suspense fallback={null}>
         <SceneContent />
-        <WeatherEffects preset={weatherPreset} />
+        {road && <WeatherEffects preset={weatherPreset} road={road} />}
       </Suspense>
       <EffectComposer multisampling={0}>
         <SMAA />

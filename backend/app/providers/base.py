@@ -26,6 +26,8 @@ class RawRoad(TypedDict):
     slope_pct: Optional[float]
     source: str
     building_footprints: List[List[Tuple[float, float]]]  # real OSM building polygons (lat, lon) rings nearby
+    nearby_ways: List[List[Tuple[float, float]]]  # other real OSM highway ways (lat, lon) near the route —
+    # candidates for the side/incoming roads feature_extraction.py trims to stubs at their real junction point
 
 
 # Default speed/volume lookup by OSM highway classification. These are transparent

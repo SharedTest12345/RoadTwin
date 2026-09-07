@@ -30,6 +30,7 @@ def _road(rid, name, region, anchor, xy_path, tags, schools=0, hospitals=0, wate
         nearby_schools=schools_pts, nearby_hospitals=hospitals_pts,
         water_nearby=water, guardrail_present=guardrail, intersections=intersections,
         slope_pct=slope, source="demo", building_footprints=[],  # demo roads have no real OSM footprints
+        nearby_ways=[],  # nor real neighboring streets to derive side-road stubs from
     )
 
 

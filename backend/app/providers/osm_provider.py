@@ -140,12 +140,22 @@ class _ContextPool:
         self.water_points: List[Tuple[float, float]] = []
         self.guardrail_points: List[Tuple[float, float]] = []
         self.building_footprints: List[List[Tuple[float, float]]] = []
+        # (way id, polyline) — id kept so enrich() can exclude a road's own way
+        # from its own "nearby ways" list (every candidate road's way is ALSO
+        # present in this same pool, since the combined query fetches every
+        # highway in the bbox, itself included).
+        self.highway_ways: List[Tuple[Optional[int], List[Tuple[float, float]]]] = []
         for el in elements:
             tags = el.get("tags", {})
             if el.get("type") == "way" and "building" in tags:
                 geom = el.get("geometry")
                 if geom and len(geom) >= 3:
                     self.building_footprints.append([(g["lat"], g["lon"]) for g in geom])
+                continue
+            if el.get("type") == "way" and "highway" in tags:
+                geom = el.get("geometry")
+                if geom and len(geom) >= 2:
+                    self.highway_ways.append((el.get("id"), [(g["lat"], g["lon"]) for g in geom]))
                 continue
             lat = el.get("lat")
             lon = el.get("lon")
@@ -196,6 +206,27 @@ class _ContextPool:
         # Cap payload size — a dense city block can return hundreds of footprints,
         # most of it more detail than this scene needs at road-segment scale.
         road["building_footprints"] = footprints[:60]
+
+        # A much tighter radius than the 180m default above — this is asking
+        # "does this street actually MEET ours" (a real junction), not "is it
+        # somewhere in the neighborhood" the way a school/signal reasonably can
+        # be. feature_extraction.py does the exact trim-to-a-stub-at-the-real-
+        # junction-point work; this only needs to hand it real candidates.
+        JUNCTION_RADIUS_M = 18.0
+        own_way_id: Optional[int] = None
+        if road["osm_id"].startswith("osm:"):
+            try:
+                own_way_id = int(road["osm_id"].split(":", 1)[1])
+            except ValueError:
+                own_way_id = None
+        nearby_ways: List[List[Tuple[float, float]]] = []
+        for way_id, way_latlon in self.highway_ways:
+            if way_id == own_way_id or len(way_latlon) < 2:
+                continue
+            way_xy = project_local_xy(road["points"] + way_latlon)[len(road["points"]):]
+            if any(point_near_polyline(xy, xy_road, JUNCTION_RADIUS_M) for xy in way_xy):
+                nearby_ways.append(way_latlon)
+        road["nearby_ways"] = nearby_ways[:30]
         return road
 
 

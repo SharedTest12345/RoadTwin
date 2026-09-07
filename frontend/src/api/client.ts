@@ -23,7 +23,7 @@ export const api = {
   randomRoad: (live = true) => req<Road>(`/roads/random?live=${live}`),
   getRoad: (id: string) => req<Road>(`/roads/${encodeURIComponent(id)}`),
   catalog: (roadId: string) => req<InterventionOption[]>(`/interventions/catalog/${encodeURIComponent(roadId)}`),
-  runSimulation: (road_id: string, duration_s = 30, intervention_ids: string[] = []) =>
+  runSimulation: (road_id: string, duration_s = 300, intervention_ids: string[] = []) =>
     req<SimResult>("/simulation/run", { method: "POST", body: JSON.stringify({ road_id, duration_s, intervention_ids }) }),
   simulateInterventions: (road_id: string, intervention_ids: string[]) =>
     req<InterventionSimulateResult>("/interventions/simulate", {

@@ -1,11 +1,80 @@
 """Turns a RawRoad (from any provider) into typed geometry + features.
 Every value that is not directly sourced from OSM/provider tags is tracked
 in `estimated` so the UI can label it honestly."""
-from typing import Tuple
+import math
+from typing import List, Tuple
 
-from ..models.schemas import RoadGeometry, RoadFeatures, LatLng
+from ..models.schemas import RoadGeometry, RoadFeatures, LatLng, SideRoad
 from ..providers.base import RawRoad, DEFAULT_SPEED_KMH, DEFAULT_VOLUME_VPH
 from .geometry import polyline_length_m, project_ref, curvature_stats
+
+# A candidate street's own nearest point to our route has to land within this
+# to actually count as meeting it (a real junction) rather than just passing
+# nearby — providers already pre-filter to roughly this scale (see
+# osm_provider.py's JUNCTION_RADIUS_M / osrm_provider.py's bbox query), this
+# is the precise cut a stub is actually built from.
+SIDE_ROAD_JUNCTION_RADIUS_M = 20.0
+# How far the rendered stub extends on EACH side of the junction point.
+SIDE_ROAD_STUB_HALF_LEN_M = 45.0
+SIDE_ROAD_MAX = 4
+
+
+def _nearest_point_on_xy(x: float, y: float, xy: List[Tuple[float, float]]) -> float:
+    """Vertex-distance approximation (consistent with geometry.py's own
+    point_near_polyline) — good enough at the point densities real OSM/OSRM
+    geometry actually comes in at, without a full point-to-segment projection."""
+    return min(math.hypot(x - px, y - py) for px, py in xy)
+
+
+def _trim_stub(way_xy: List[Tuple[float, float]], junction_idx: int, half_len_m: float) -> Tuple[List[Tuple[float, float]], int]:
+    """A short window of `way_xy` centered on `junction_idx`, extending up to
+    `half_len_m` of real arc length in each direction — naturally shorter on
+    a side that dead-ends near the junction, and reaches its full length on a
+    through street. Kept in the candidate way's OWN point order throughout."""
+    back: List[Tuple[float, float]] = []
+    acc, i = 0.0, junction_idx
+    while i > 0 and acc < half_len_m:
+        acc += math.hypot(way_xy[i][0] - way_xy[i - 1][0], way_xy[i][1] - way_xy[i - 1][1])
+        i -= 1
+        back.append(way_xy[i])
+    back.reverse()
+
+    fwd: List[Tuple[float, float]] = []
+    acc, i = 0.0, junction_idx
+    while i < len(way_xy) - 1 and acc < half_len_m:
+        acc += math.hypot(way_xy[i][0] - way_xy[i + 1][0], way_xy[i][1] - way_xy[i + 1][1])
+        i += 1
+        fwd.append(way_xy[i])
+
+    # `back` was built walking AWAY from the junction then reversed, so its
+    # length is exactly the junction's own index in the concatenated result.
+    stub = back + [way_xy[junction_idx]] + fwd
+    return stub, len(back)
+
+
+def _extract_side_roads(
+    main_xy: List[Tuple[float, float]],
+    nearby_ways: List[List[Tuple[float, float]]],
+    ref_lat: float, ref_lon: float,
+) -> List[SideRoad]:
+    out: List[SideRoad] = []
+    for way_latlon in nearby_ways:
+        if len(way_latlon) < 2:
+            continue
+        way_xy = project_ref(way_latlon, ref_lat, ref_lon)
+        best_i, best_d = None, None
+        for i, (x, y) in enumerate(way_xy):
+            d = _nearest_point_on_xy(x, y, main_xy)
+            if best_d is None or d < best_d:
+                best_d, best_i = d, i
+        if best_i is None or best_d is None or best_d > SIDE_ROAD_JUNCTION_RADIUS_M:
+            continue
+        stub, junction_index = _trim_stub(way_xy, best_i, SIDE_ROAD_STUB_HALF_LEN_M)
+        if len(stub) >= 2:
+            out.append(SideRoad(points_xy=[[x, y] for x, y in stub], junction_index=junction_index))
+        if len(out) >= SIDE_ROAD_MAX:
+            break
+    return out
 
 
 def extract(raw: RawRoad) -> Tuple[RoadGeometry, RoadFeatures]:
@@ -68,12 +137,14 @@ def extract(raw: RawRoad) -> Tuple[RoadGeometry, RoadFeatures]:
         [[x, y] for x, y in project_ref(ring, ref_lat, ref_lon)]
         for ring in raw.get("building_footprints", [])
     ]
+    side_roads = _extract_side_roads(xy, raw.get("nearby_ways", []), ref_lat, ref_lon)
 
     geometry = RoadGeometry(
         points=[LatLng(lat=p[0], lon=p[1]) for p in points],
         local_xy=[[x, y] for x, y in xy],
         length_m=length_m,
         building_footprints_xy=footprints_xy,
+        side_roads=side_roads,
     )
     features = RoadFeatures(
         length_m=length_m,

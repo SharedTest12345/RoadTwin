@@ -67,27 +67,6 @@ export function asphaltTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** A real zebra crossing: alternating white/asphalt bands, tileable along one
- * axis so a single plane + repeat.y gives real, evenly-spaced stripes scaled
- * to the actual crossing width instead of hand-placing N separate stripe
- * meshes (which is what this replaced — five independent planes with no
- * guaranteed real spacing or shared texture). One canvas period = one real
- * white stripe + one real gap. */
-export function crossingTexture(): THREE.CanvasTexture {
-  const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#33363c"; // asphalt-dark gap, not pure black — reads as pavement between stripes
-  ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = "#e8e8e0"; // off-white, matching MARKING_WHITE's real-paint tone rather than pure #fff
-  ctx.fillRect(0, 0, size, size * 0.5);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  return tex;
-}
-
 /** Real speed humps are painted with black/yellow diagonal hazard stripes —
  * distinct from the crossing's flat white bands, and diagonal so it reads as
  * a hazard marking rather than a second crosswalk. */

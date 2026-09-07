@@ -19,6 +19,7 @@ import requests
 
 from .. import config
 from .base import RoadDataProvider, RawRoad
+from .osm_provider import HIGHWAY_CLASSES
 from ..services.geometry import polyline_length_m, haversine_m
 
 log = logging.getLogger("roadtwin.osrm")
@@ -104,6 +105,68 @@ def _densify(points: List[Tuple[float, float]], max_gap_m: float) -> List[Tuple[
     return out
 
 
+# Same cap osm_provider.py uses for its own building_footprints — keeps the
+# payload/scene prop count bounded regardless of how dense the area is.
+BUILDING_FETCH_CAP = 60
+# Real incoming/side streets are worth fewer of, and feature_extraction.py's
+# own junction proximity filter throws most non-junction candidates away
+# anyway — this just bounds how many candidate ways get sent over the wire.
+WAY_FETCH_CAP = 30
+
+
+def _fetch_context_near_route(points: List[Tuple[float, float]]) -> Tuple[List[List[Tuple[float, float]]], List[List[Tuple[float, float]]]]:
+    """This provider exists specifically because Overpass (osm_provider.py) is
+    unreliable — but that unreliability applies to its big REGION-WIDE discovery
+    query, not necessarily to a single small query scoped to just this route's own
+    bounding box. Real building footprints AND real neighboring streets (for the
+    incoming/side-roads feature) are worth trying for over the always-empty lists
+    this used to hardcode, which is what forced every OSRM-sourced road onto fully
+    procedural (map-inaccurate) building/tree placement and no side roads at all.
+    One combined query (not two) for the same reason osm_provider.py's own
+    _combined_query is one call, not several. Best-effort and silent on any
+    failure — this is all decoration; the route itself must never depend on it.
+    Returns (building_rings, way_polylines), both as raw (lat, lon) point lists."""
+    if not config.USE_LIVE_OSM or len(points) < 2:
+        return [], []
+    lats = [p[0] for p in points]
+    lons = [p[1] for p in points]
+    # ~150m buffer in degrees around the route's own bounding box — rough (not
+    # latitude-corrected), which is fine for a decoration-only query rather than
+    # a precision boundary.
+    pad_lat, pad_lon = 0.0014, 0.0018
+    bbox = (min(lats) - pad_lat, min(lons) - pad_lon, max(lats) + pad_lat, max(lons) + pad_lon)
+    b = f"{bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]}"
+    query = f"""
+    [out:json][timeout:{int(config.OVERPASS_TIMEOUT_S)}];
+    (
+      way["building"]({b});
+      way["highway"~"^({HIGHWAY_CLASSES})$"]["area"!="yes"]({b});
+    );
+    out geom;
+    """
+    try:
+        resp = _session.post(config.OVERPASS_URL, data={"data": query},
+                              timeout=(min(3.0, config.OVERPASS_TIMEOUT_S), config.OVERPASS_TIMEOUT_S))
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        log.warning("Overpass context fetch failed (non-fatal, route unaffected): %s", exc)
+        return [], []
+    buildings: List[List[Tuple[float, float]]] = []
+    ways: List[List[Tuple[float, float]]] = []
+    for el in data.get("elements", []):
+        geom = el.get("geometry")
+        if not geom or len(geom) < 2:
+            continue
+        tags = el.get("tags", {})
+        pts = [(g["lat"], g["lon"]) for g in geom]
+        if "building" in tags and len(pts) >= 3:
+            buildings.append(pts)
+        elif "highway" in tags:
+            ways.append(pts)
+    return buildings[:BUILDING_FETCH_CAP], ways[:WAY_FETCH_CAP]
+
+
 def _truncate(points: List[Tuple[float, float]], max_m: float) -> List[Tuple[float, float]]:
     if len(points) < 2:
         return points
@@ -143,6 +206,7 @@ def _route_to_road(data: dict, region: str, route_id: str) -> Optional[RawRoad]:
     named_steps = [s for s in steps if s.get("name")]
     name = max(named_steps, key=lambda s: s.get("distance", 0))["name"] if named_steps else f"Real Route ({region})"
 
+    buildings, ways = _fetch_context_near_route(points)
     return RawRoad(
         osm_id=f"osrm:{route_id}", name=name, region=region, points=points,
         tags=dict(highway=None, lanes=None, maxspeed_kmh=None, oneway=False,
@@ -155,7 +219,8 @@ def _route_to_road(data: dict, region: str, route_id: str) -> Optional[RawRoad]:
         intersections=max(1, len(steps) - 1),
         slope_pct=None,
         source="osrm",
-        building_footprints=[],
+        building_footprints=buildings,
+        nearby_ways=ways,
     )
 
 

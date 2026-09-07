@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useGLTF, Clone } from "@react-three/drei";
 import * as THREE from "three";
 import type { Road, SimResult, VehicleFrame } from "../../../types";
-import { buildPath, toWorld, perpendicular, sampleAlongPath } from "../../../three/geometryUtils";
+import { buildRoadCurve, sampleRoadCurveAt } from "../../../three/geometryUtils";
 import { CAR_MODELS } from "../../../three/vehicleModels";
 
 interface Props {
@@ -53,7 +53,13 @@ function interpolateVehicles(a: VehicleFrame[], b: VehicleFrame[], f: number): V
 }
 
 export function Vehicles({ road, sim, simTime }: Props) {
-  const points = useMemo(() => buildPath(road), [road]);
+  // The SAME curve Road.tsx renders the asphalt from (and Infrastructure.tsx
+  // already anchors guardrails/lamps to) — sampling this instead of buildPath's
+  // raw resampled points + a separately-computed 2D bisector is what puts the
+  // car exactly on the rendered surface (grounded, no sideways drift on
+  // curves) with a true analytic tangent for heading instead of an
+  // angle-interpolated approximation between two nearby path vertices.
+  const { curve: roadCurve, length: roadCurveLength } = useMemo(() => buildRoadCurve(road), [road]);
   const gltfs = useGLTF(CAR_MODELS);
 
   const vehicles = useMemo(() => {
@@ -71,27 +77,25 @@ export function Vehicles({ road, sim, simTime }: Props) {
   return (
     <group>
       {vehicles.map((v) => {
-        // Sample the SAME smooth curve Road.tsx/Terrain.tsx render against, at
+        // Sample the SAME curve object Road.tsx renders the asphalt from, at
         // this vehicle's actual arc length — not the backend's raw straight-
-        // chord lookup — so the car always sits exactly on the rendered curve
-        // instead of cutting corners on a bend.
-        const p = sampleAlongPath(points, v.s);
-        // ribbonHeading (the miter-bisector direction), NOT heading (the raw
-        // segment direction), is what every other lateral offset in the scene
-        // uses (Road.tsx's edges/markings, Infrastructure's guardrail/signs,
-        // Scenery's placement) — heading can diverge from the true perpendicular
-        // by 10-15deg right at a sharp turn, which pushed a "centered" lane
-        // offset sideways enough to land on the lane line exactly where curves
-        // are tightest. perpendicular() offsets are applied to WORLD coordinates
-        // after toWorld everywhere else in the scene, not pre-toWorld local x/y.
-        const [px, pz] = perpendicular(p.ribbonHeading);
-        const [bx, by, bz] = toWorld(p.x, p.y, p.elev);
-        const wx = bx + px * v.lane_offset_m, wy = by, wz = bz + pz * v.lane_offset_m;
-        // p.heading is buildPath's world-plane heading (atan2(-dy, dx), already
-        // accounting for toWorld's y->-z flip) — for a +Z-forward model this
-        // needs the complementary angle, pi/2 - heading (see geometryUtils'
-        // perpendicular/heading convention notes).
-        const headingRad = Math.PI / 2 - p.heading;
+        // chord lookup, and not a separately re-derived 2D approximation — so
+        // the car sits exactly on the rendered surface (correct elevation, no
+        // sideways drift) with a true analytic tangent for heading instead of
+        // one linearly interpolated between two nearby path vertices.
+        const cp = sampleRoadCurveAt(roadCurve, roadCurveLength, v.s);
+        // binormal is the exact same cross(tangent, up) direction Road.tsx
+        // offsets its edge lines/lane markings along and Infrastructure.tsx
+        // anchors guardrails/lamps to — using it here (instead of a separately
+        // computed perpendicular()) is what keeps a "centered" lane offset
+        // actually centered on the rendered lane, curves included.
+        const wx = cp.point.x + cp.binormal.x * v.lane_offset_m;
+        const wy = cp.point.y + cp.binormal.y * v.lane_offset_m;
+        const wz = cp.point.z + cp.binormal.z * v.lane_offset_m;
+        // cp.heading uses the identical atan2(tangent.z, tangent.x) convention
+        // buildPath's heading did (see geometryUtils' CurvePoint doc) — for a
+        // +Z-forward model this is still the complementary angle, pi/2 - heading.
+        const headingRad = Math.PI / 2 - cp.heading;
         const modelIdx = v.id % CAR_MODELS.length;
         const scene = gltfs[modelIdx]?.scene;
         return (
@@ -115,8 +119,8 @@ export function Vehicles({ road, sim, simTime }: Props) {
       })}
 
       {activeConflicts.map((c, i) => {
-        const p = sampleAlongPath(points, c.s);
-        const [wx, wy, wz] = toWorld(p.x, p.y, p.elev);
+        const cp = sampleRoadCurveAt(roadCurve, roadCurveLength, c.s);
+        const wx = cp.point.x, wy = cp.point.y, wz = cp.point.z;
         return (
           <group key={i} position={[wx, wy + 0.1, wz]}>
             <mesh rotation={[-Math.PI / 2, 0, 0]}>

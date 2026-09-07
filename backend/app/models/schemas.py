@@ -9,6 +9,19 @@ class LatLng(BaseModel):
     lon: float
 
 
+class SideRoad(BaseModel):
+    # A real OSM street that actually meets this road, trimmed to a short stub
+    # centered on their real junction point — same local (x, y) meter frame as
+    # RoadGeometry.local_xy. Visual only: the traffic simulation doesn't route
+    # vehicles onto/from these (see feature_extraction.py's side-road extraction
+    # for how the junction/trim is found).
+    points_xy: List[List[float]]
+    # Index into points_xy of the actual junction point — sent explicitly so
+    # the frontend places its signal/stop-line there directly instead of
+    # re-deriving "which point is the junction" with a second search.
+    junction_index: int
+
+
 class RoadGeometry(BaseModel):
     points: List[LatLng]
     local_xy: List[List[float]]  # projected meters, same length as points, [x, y]
@@ -17,6 +30,7 @@ class RoadGeometry(BaseModel):
     # Real OSM building footprint polygons (each a ring of [x, y] meters), projected
     # into the SAME local frame as local_xy above. Empty for demo roads / roads with
     # no nearby OSM building data — the frontend falls back to procedural placement.
+    side_roads: List[SideRoad] = Field(default_factory=list)
 
 
 class RoadTags(BaseModel):
@@ -138,9 +152,21 @@ class VehicleFrame(BaseModel):
     braking: bool = False
 
 
+class PedestrianFrame(BaseModel):
+    # Same arc-length-plus-lateral-offset convention as VehicleFrame, and for
+    # the same reason: the frontend re-samples its own smooth curve at `s`
+    # rather than trusting a straight-chord world position from this sim's
+    # sparser raw point list.
+    id: int
+    s: float
+    lateral_m: float  # signed offset from centerline; sidewalk when walking, sweeps across when crossing
+    crossing: bool = False
+
+
 class SimFrame(BaseModel):
     t: float
     vehicles: List[VehicleFrame]
+    pedestrians: List[PedestrianFrame] = Field(default_factory=list)
 
 
 class ConflictEvent(BaseModel):
@@ -165,6 +191,17 @@ class SimResult(BaseModel):
     metrics: SimMetrics
     duration_s: float
     dt: float
+    # Fraction (0..1) along the route of the pedestrian crossing this sim
+    # actually stops traffic at (None if there isn't one). The frontend
+    # renders its own crossing/signal at this SAME fraction of ITS OWN curve
+    # instead of independently re-searching for "the straight point nearest
+    # the midpoint" over a different (denser, resampled) point set — two
+    # separate searches over differently-sampled geometry can walk outward at
+    # different physical step sizes and settle on two different straight
+    # stretches of the same road, which is what put the rendered zebra
+    # crossing at one spot while pedestrians (and the traffic light) treated
+    # a completely different spot as "the crossing."
+    crossing_frac: Optional[float] = None
 
 
 class InterventionOption(BaseModel):
@@ -184,7 +221,7 @@ class RoadAnalyzeRequest(BaseModel):
 
 class SimulationRunRequest(BaseModel):
     road_id: str
-    duration_s: float = 30.0
+    duration_s: float = 300.0
     intervention_ids: List[str] = Field(default_factory=list)
 
 

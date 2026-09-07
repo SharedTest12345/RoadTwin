@@ -3,11 +3,17 @@ export interface LatLng {
   lon: number;
 }
 
+export interface SideRoad {
+  points_xy: [number, number][];
+  junction_index: number;
+}
+
 export interface RoadGeometry {
   points: LatLng[];
   local_xy: [number, number][];
   length_m: number;
   building_footprints_xy: [number, number][][];
+  side_roads: SideRoad[];
 }
 
 export interface RoadTags {
@@ -116,9 +122,17 @@ export interface VehicleFrame {
   braking: boolean;
 }
 
+export interface PedestrianFrame {
+  id: number;
+  s: number;
+  lateral_m: number;
+  crossing: boolean;
+}
+
 export interface SimFrame {
   t: number;
   vehicles: VehicleFrame[];
+  pedestrians: PedestrianFrame[];
 }
 
 export interface ConflictEvent {
@@ -143,6 +157,9 @@ export interface SimResult {
   metrics: SimMetrics;
   duration_s: number;
   dt: number;
+  // Fraction (0..1) along the route of the crossing this sim's physics
+  // actually stops traffic at — see traffic_sim.py's SimResult.crossing_frac.
+  crossing_frac: number | null;
 }
 
 export interface InterventionOption {
