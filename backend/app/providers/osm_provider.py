@@ -35,6 +35,92 @@ REGIONS = [
     ("Seattle, Washington, USA", (47.600, -122.350, 47.625, -122.320)),
 ]
 
+# The 6 regions above cluster in just a few metro areas — fine for a handful
+# of scans, but "random road" always picks from REGIONS, so at any volume
+# (e.g. scanning hundreds of roads) every result lands in one of those same 6
+# small boxes, rendering as a few dense clusters on the Atlas map instead of
+# spread across the country. These extend coverage to every major US region
+# (Pacific NW, California, Mountain West, Southwest, Midwest, Texas, South,
+# Southeast, Mid-Atlantic, Northeast) so repeated scans actually scatter
+# nationwide. Each is still a real downtown-sized area (~3km across) so
+# Overpass/OSRM return real, richly-tagged streets rather than empty
+# countryside.
+_HALF_SPAN_LAT = 0.016
+_HALF_SPAN_LON = 0.020
+_MORE_CITY_CENTERS: List[Tuple[str, float, float]] = [
+    ("Portland, Oregon, USA", 45.520, -122.675),
+    ("Oakland, California, USA", 37.804, -122.271),
+    ("Sacramento, California, USA", 38.581, -121.494),
+    ("Los Angeles, California, USA", 34.052, -118.244),
+    ("San Diego, California, USA", 32.716, -117.161),
+    ("Fresno, California, USA", 36.746, -119.772),
+    ("Denver, Colorado, USA", 39.739, -104.990),
+    ("Phoenix, Arizona, USA", 33.448, -112.074),
+    ("Tucson, Arizona, USA", 32.222, -110.974),
+    ("Las Vegas, Nevada, USA", 36.171, -115.139),
+    ("Salt Lake City, Utah, USA", 40.760, -111.891),
+    ("Albuquerque, New Mexico, USA", 35.085, -106.649),
+    ("Boise, Idaho, USA", 43.615, -116.202),
+    ("Billings, Montana, USA", 45.783, -108.500),
+    ("Minneapolis, Minnesota, USA", 44.977, -93.265),
+    ("Detroit, Michigan, USA", 42.331, -83.046),
+    ("St. Louis, Missouri, USA", 38.627, -90.199),
+    ("Kansas City, Missouri, USA", 39.100, -94.578),
+    ("Cleveland, Ohio, USA", 41.499, -81.694),
+    ("Columbus, Ohio, USA", 39.961, -82.999),
+    ("Indianapolis, Indiana, USA", 39.768, -86.158),
+    ("Milwaukee, Wisconsin, USA", 43.039, -87.906),
+    ("Omaha, Nebraska, USA", 41.257, -95.995),
+    ("Houston, Texas, USA", 29.760, -95.370),
+    ("Dallas, Texas, USA", 32.777, -96.797),
+    ("Austin, Texas, USA", 30.267, -97.743),
+    ("San Antonio, Texas, USA", 29.424, -98.494),
+    ("New Orleans, Louisiana, USA", 29.951, -90.072),
+    ("Oklahoma City, Oklahoma, USA", 35.468, -97.516),
+    ("Little Rock, Arkansas, USA", 34.746, -92.289),
+    ("Atlanta, Georgia, USA", 33.749, -84.388),
+    ("Miami, Florida, USA", 25.762, -80.192),
+    ("Orlando, Florida, USA", 28.538, -81.379),
+    ("Tampa, Florida, USA", 27.950, -82.457),
+    ("Charlotte, North Carolina, USA", 35.227, -80.843),
+    ("Raleigh, North Carolina, USA", 35.780, -78.639),
+    ("Nashville, Tennessee, USA", 36.163, -86.782),
+    ("Memphis, Tennessee, USA", 35.150, -90.049),
+    ("Birmingham, Alabama, USA", 33.521, -86.802),
+    ("Boston, Massachusetts, USA", 42.361, -71.058),
+    ("Philadelphia, Pennsylvania, USA", 39.953, -75.164),
+    ("Washington, District of Columbia, USA", 38.907, -77.037),
+    ("Baltimore, Maryland, USA", 39.290, -76.612),
+    ("Pittsburgh, Pennsylvania, USA", 40.441, -79.996),
+    ("Providence, Rhode Island, USA", 41.824, -71.413),
+    ("Buffalo, New York, USA", 42.886, -78.878),
+    # Remaining states with no city above — without these, whole states show
+    # zero markers on the Atlas map regardless of how many roads get scanned,
+    # which reads as "the US isn't covered" no matter the scan count.
+    ("Hartford, Connecticut, USA", 41.764, -72.685),
+    ("Wilmington, Delaware, USA", 39.745, -75.547),
+    ("Des Moines, Iowa, USA", 41.586, -93.625),
+    ("Wichita, Kansas, USA", 37.688, -97.336),
+    ("Louisville, Kentucky, USA", 38.253, -85.758),
+    ("Portland, Maine, USA", 43.661, -70.255),
+    ("Jackson, Mississippi, USA", 32.299, -90.185),
+    ("Manchester, New Hampshire, USA", 42.996, -71.455),
+    ("Newark, New Jersey, USA", 40.735, -74.172),
+    ("Fargo, North Dakota, USA", 46.877, -96.789),
+    ("Columbia, South Carolina, USA", 34.000, -81.035),
+    ("Sioux Falls, South Dakota, USA", 43.545, -96.731),
+    ("Burlington, Vermont, USA", 44.476, -73.212),
+    ("Richmond, Virginia, USA", 37.541, -77.436),
+    ("Charleston, West Virginia, USA", 38.349, -81.633),
+    ("Cheyenne, Wyoming, USA", 41.140, -104.820),
+    ("Anchorage, Alaska, USA", 61.218, -149.900),
+    ("Honolulu, Hawaii, USA", 21.307, -157.858),
+]
+REGIONS += [
+    (name, (lat - _HALF_SPAN_LAT, lon - _HALF_SPAN_LON, lat + _HALF_SPAN_LAT, lon + _HALF_SPAN_LON))
+    for name, lat, lon in _MORE_CITY_CENTERS
+]
+
 
 class HostUnreachable(Exception):
     """Raised when the Overpass host itself can't be reached (DNS/connect/TLS

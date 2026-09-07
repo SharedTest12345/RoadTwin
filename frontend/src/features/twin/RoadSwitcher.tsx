@@ -34,7 +34,7 @@ export function RoadSwitcher({ road }: { road: Road }) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.05] hover:bg-white/[0.08] text-ink-200 text-xs font-semibold transition-colors"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-ink-600/70 bg-black hover:bg-ink-900 text-ink-200 text-xs font-semibold transition-colors"
       >
         Switch road <ChevronDown size={13} />
       </button>
