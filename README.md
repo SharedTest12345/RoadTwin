@@ -12,14 +12,15 @@ official road-safety certification or engineering assessment.**
 ## Architecture
 
 ```
-frontend (React + TS + Vite + React Three Fiber)
+frontend (React + TS + Vite + React Router + Zustand + React Three Fiber)
    |  fetch /api/* (proxied to backend in dev)
    v
 backend (FastAPI)
    |
    +-- providers/            RoadDataProvider abstraction
    |     osm_provider.py       live OpenStreetMap discovery via Overpass API (no key required)
-   |     demo_provider.py      curated fallback road catalog (used if OSM is unreachable)
+   |     osrm_provider.py      second-tier live source (OSRM's public router) if Overpass is down
+   |     demo_provider.py      curated fallback road catalog (used if OSM/OSRM are unreachable)
    |
    +-- services/
          geometry.py            haversine length, local ENU projection, curvature/heading
@@ -28,13 +29,38 @@ backend (FastAPI)
          traffic_sim.py         IDM microsimulation + TTC conflict detection
          intervention_engine.py catalog of interventions as feature-space transforms
          optimizer.py           brute-force search over the intervention powerset
-         priority_map.py        cross-road prioritization ("government mode")
-         road_store.py          in-memory cache + live/demo orchestration
+         priority_map.py        cross-road prioritization over roads actually scanned
+         road_store.py          fetch/build orchestration (live OSM/OSRM with demo fallback)
+         road_db.py             SQLite-backed catalog of every road scanned so far
+                                 (backend/roadtwin.db) — survives a backend restart
 ```
 
-Every endpoint degrades gracefully: if Overpass is unreachable, `road_store` falls back to the
-demo catalog automatically. The app never hard-fails due to network conditions or a missing API key
-(no key is required anywhere in this build — OpenStreetMap/Overpass is free and unauthenticated).
+Every endpoint degrades gracefully: if Overpass is unreachable, `road_store` falls back to OSRM,
+then the demo catalog. The app never hard-fails due to network conditions or a missing API key
+(no key is required anywhere in this build — OpenStreetMap/Overpass/OSRM are free and
+unauthenticated, and the map tiles are plain OpenStreetMap raster tiles for the same reason).
+
+### Frontend
+
+Three top-level pages under React Router, sharing one persistent top nav (`app/Shell.tsx`,
+`app/TopNav.tsx`):
+
+- **Atlas** (`/`) — a country-wide (US) dark map of every road RoadTwin has actually scanned
+  (`features/atlas/`), color-coded by risk tier. This is the landing experience: it makes clear
+  at a glance that RoadTwin is a road-scanning platform, not a single-road demo.
+- **Digital Twin** (`/twin/:roadId`) — the 3D simulation workspace for one road
+  (`features/twin/`): risk gauge, road-intelligence breakdown, interventions/optimizer,
+  before/after comparison, and the procedural 3D scene (`features/twin/scene/`). `:roadId` of
+  `new` triggers a live scan and then replaces the URL with the resulting road's real id, so
+  every twin view is a shareable, deep-linkable link. The legacy `?autodemo=<id>` / `?road=<id>`
+  query-param deep links (from earlier builds) still work — `AtlasPage` forwards them into the
+  route on load.
+- **Priority Map** (`/priority`) — ranks scanned roads by estimated intervention priority.
+
+Design tokens (`tailwind.config.js`, `styles/index.css`) are a single ink/brand/risk color scale —
+a deep near-black "cyber-infrastructure" base with a glowing telemetry-cyan brand accent, glass-blur
+surfaces, and JetBrains Mono for data/Plus Jakarta Sans for UI — every panel draws from these rather
+than one-off values.
 
 ## The computational pipeline
 
@@ -77,7 +103,7 @@ but the physics run longer internally so delay/conflict statistics aren't struct
 long roads). Notable additions beyond textbook IDM:
 
 - **Curve-speed profile**: each vehicle's desired speed is locally reduced near sharp bends (with
-  ~15m look-ahead), so vehicles actually brake for hairpins — this is what makes the ghat/cliff
+  ~15m look-ahead), so vehicles actually brake for hairpins — this is what makes the coastal cliff
   road scenario visually and numerically distinct from a straight highway.
 - **Driver heterogeneity**: ~40% of simulated drivers are modeled with a longer reaction lag
   (2.4s vs. 1.0s) and less curve compliance. Pure textbook IDM is deliberately collision-avoidant
@@ -105,10 +131,14 @@ every combination, then ranks by objective (`safety`, `traffic`, `budget`, `bala
 
 ### Priority map ("government mode")
 
-`priority_map.py` ranks the demo road set (optionally + a small live OSM sample) by
-`risk_score × traffic_exposure × pedestrian_exposure / cost_factor`, where the exposure/cost
-factors are kept as moderate (~0.7-1.6x) multipliers specifically so risk remains the primary
-sort key — this is a labeled prototype heuristic, not an official budgetary methodology.
+`priority_map.py` ranks every road actually scanned so far (`road_db`, optionally + a small fresh
+live-discovery sample) by `risk_score × traffic_exposure × pedestrian_exposure / cost_factor`,
+where the exposure/cost factors are kept as moderate (~0.7-1.6x) multipliers specifically so risk
+remains the primary sort key — this is a labeled prototype heuristic, not an official budgetary
+methodology. The curated demo roads are deliberately excluded from this ranking (and from the
+Atlas map) — their geometry is an authored illustrative curve, not a live-traced street, so
+ranking them alongside genuinely scanned roads would be misleading; they stay reachable
+individually via the Demo button / `?autodemo=`.
 
 ## Data honesty
 
@@ -136,24 +166,30 @@ npm run dev
 ```
 
 Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `http://127.0.0.1:8000`.
+You land on the Atlas (`/`) — a map of every road scanned so far (empty on a fresh database).
 
 ### Demo
 
-Click **Demo** in the top bar (or open `http://localhost:5173/?autodemo=ghat_cliff_road`) to jump
-straight to the flagship scenario: a Western Ghats switchback road with no guardrail scores
-**CRITICAL (0.9★, risk 81/100)**. Open **Why is this road risky?**, then **Interventions**, and
-apply **Guardrail + Reduce Speed Environment** (or click **Apply Recommended Combination** after
+Click **Demo** in the top nav (or open `http://localhost:5173/twin/pch_cliff_road`, or the
+legacy `http://localhost:5173/?autodemo=pch_cliff_road`) to jump straight to the flagship
+scenario: a Pacific Coast Highway switchback above the Big Sur coastline with no guardrail scores
+**CRITICAL (0.9★, risk 81/100)**. Open **Road Intel**, then **Interventions**, and apply
+**Guardrail + Reduce Speed Environment** (or click **Apply Recommended Combination** after
 running the optimizer) — risk drops to **MODERATE CONCERN (~2.6★, risk ~47)**, with simulated
 conflicts and delay dropping to zero in the Before/After panel.
 
-Click **Scan Random Road** to pull a real road from OpenStreetMap (Bengaluru, Mumbai, Lonavala
-Ghat, Delhi, Gurugram, or Alappuzha) via the Overpass API. If Overpass is unreachable, it falls
-back to the demo catalog automatically — the app never breaks.
+Click **Scan Random Road** to pull a real road from OpenStreetMap (San Francisco, Big Sur,
+Manhattan, Golden CO, Chicago Loop, or Seattle) via the Overpass API. If Overpass is unreachable,
+it falls back to OSRM, then the demo catalog — the app never breaks. Every real scan is saved to
+`backend/roadtwin.db` and immediately shows up as a new road on the Atlas map, across restarts.
 
-`?autodemo=<road_id>` (any demo road id, or `?autodemo` alone for a live random scan) deep-links
-directly into a loaded scenario — useful for demos and screenshots.
+`/twin/new` (used by both "Scan Random Road" buttons) triggers a live scan and then replaces the
+URL with the resulting road's real id, so the result is a normal shareable link. The legacy
+`?autodemo=<road_id>` (any demo road id, or `?autodemo` alone for a live random scan) and
+`?road=<id>` query-param deep links still work — they're forwarded into the `/twin/:roadId` route
+on load.
 
-**Priority Map** (top bar) ranks all demo roads by estimated intervention priority; clicking a row
+**Priority Map** (top nav) ranks scanned roads by estimated intervention priority; clicking a row
 loads that road's digital twin.
 
 ## Third-party assets
@@ -168,10 +204,10 @@ loads that road's digital twin.
 - Guardrail, streetlight, and hazard-sign models: [Kenney City Kit Roads](https://opengameart.org/content/city-kit-roads)
   and [Kenney Racing Kit](https://opengameart.org/content/racing-kit) (both CC0, kenney.nl),
   self-hosted under `frontend/public/models/props/`.
-- Environment lighting: a night-sky HDRI from [Poly Haven](https://polyhaven.com) (CC0),
-  self-hosted under `frontend/public/hdri/`.
 - None of the above require attribution (CC0), credited here anyway. Everything else in the 3D
-  scene (terrain, road, guardrails, signals, all textures) is generated procedurally at runtime.
+  scene (sky, terrain, road, guardrails, signals, all textures) is generated procedurally at
+  runtime — the sky is a real-time atmospheric scattering sky (`@react-three/drei`'s `<Sky>`)
+  with a matching directional sun light, not an image.
 
 ## Real building footprints
 

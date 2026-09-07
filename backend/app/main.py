@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .models.schemas import (
-    Road, SimResult, SimulationRunRequest, InterventionOption, InterventionSimulateRequest,
+    Road, RoadSummary, SimResult, SimulationRunRequest, InterventionOption, InterventionSimulateRequest,
     InterventionSimulateResult, OptimizeRequest, OptimizeResult, PriorityMapResult,
 )
 from .services import road_store, traffic_sim, intervention_engine as ie, risk_engine, optimizer, priority_map
@@ -36,6 +36,27 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok", "live_osm_enabled": config.USE_LIVE_OSM}
+
+
+def _to_summary(road: Road) -> RoadSummary:
+    return RoadSummary(
+        id=road.id, name=road.name, source=road.source, region=road.region,
+        center=road.center, points=road.geometry.points, length_m=road.geometry.length_m,
+        lanes=road.features.lanes, speed_limit_kmh=road.features.speed_limit_kmh,
+        estimated_volume_vph=road.features.estimated_volume_vph,
+        risk_score=road.risk.score_0_100, safety_score=road.risk.safety_score_0_100,
+        stars=road.risk.stars, category=road.risk.category, summary=road.risk.summary,
+        cliff_scenario=road.cliff_scenario, has_sidewalk=road.features.has_sidewalk,
+        has_lighting=road.features.has_lighting, guardrail_present=road.features.guardrail_present,
+    )
+
+
+@app.get("/roads", response_model=List[RoadSummary])
+def roads_list():
+    """Lightweight catalog of every road RoadTwin currently knows about (the
+    curated demo set plus any live roads scanned so far this session) — powers
+    the Home map. Full per-road detail still comes from GET /roads/{road_id}."""
+    return [_to_summary(r) for r in road_store.list_known_roads()]
 
 
 @app.get("/roads/random", response_model=Road)

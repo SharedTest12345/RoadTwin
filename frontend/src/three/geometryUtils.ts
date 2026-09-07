@@ -1,35 +1,29 @@
 import * as THREE from "three";
 import type { Road } from "../types";
 
-// Single source of truth for risk tiers on the frontend — mirrors backend
-// risk_engine.CATEGORY_THRESHOLDS exactly (80/60/40/0 -> CRITICAL/HIGH/MODERATE/LOW).
-// Every place that shows a risk badge, dot, or bar color reads from this table
-// instead of re-deriving its own thresholds, which is what let the top header
-// badge, side panel, and priority map disagree with each other before.
-export const RISK_COLORS: Record<string, string> = {
-  CRITICAL: "#ef4444",
-  HIGH: "#f97316",
-  MODERATE: "#eab308",
-  LOW: "#22c55e",
-};
-
-export function riskColor(category: string): string {
-  return RISK_COLORS[category] ?? RISK_COLORS.LOW;
-}
-
-/** Category label for a raw 0-100 score — must stay byte-identical to the
- * backend's CATEGORY_THRESHOLDS. Used where the frontend only has a number
- * (e.g. priority map rows) and shouldn't invent its own bucketing. */
-export function riskCategoryFromScore(score: number): string {
-  if (score >= 80) return "CRITICAL";
-  if (score >= 60) return "HIGH";
-  if (score >= 40) return "MODERATE";
-  return "LOW";
-}
+// Risk color/category helpers now live in lib/riskColors.ts (dependency-free,
+// so pages that don't need the 3D scene — e.g. the Home map — can import them
+// without pulling in three.js). Re-exported here so every existing import of
+// "../three/geometryUtils" / "../../three/geometryUtils" keeps working.
+export { RISK_COLORS, riskColor, riskCategoryFromScore } from "../lib/riskColors";
 
 /** local_xy (x=east, y=north) meters -> three.js world space (x=x, z=-y, y=elevation) */
 export function toWorld(x: number, y: number, elev: number): [number, number, number] {
   return [x, elev, -y];
+}
+
+// Per-lane half-width, in meters (the whole scene is ~1 unit = 1 meter — see
+// vehicle/prop model comments). 2.0 (≈4.0m/lane) matched a real US lane closely
+// but read as small on screen next to everything else at real scale — bumped
+// to 2.6 (≈5.2m/lane) as a deliberate visual-scale choice (not a realism one)
+// so the carriageway itself reads as substantially bigger, not just closer to
+// camera. Every scene file that draws the road/terrain corridor/roadside props
+// needs the SAME value, so it lives here once rather than as four independently-
+// drifting copies of the same formula.
+const HALF_WIDTH_PER_LANE_M = 2.6;
+
+export function roadHalfWidth(road: Road): number {
+  return Math.max(2, road.features.lanes) * HALF_WIDTH_PER_LANE_M;
 }
 
 export interface PathPoint {
@@ -78,10 +72,6 @@ export function buildPath(road: Road): PathPoint[] {
   for (let i = 1; i < xy.length; i++) {
     rawCum.push(rawCum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
   }
-  const rawElev = (i: number) => {
-    const t = rawCum[i] / totalLen;
-    return -t * totalDrop + Math.sin(i * 1.7) * (slopeFrac > 0.05 ? 1.2 : 0.15);
-  };
   const rawHazard = (i: number): boolean => {
     if (i <= 0 || i >= xy.length - 1) return false;
     const a = Math.atan2(xy[i][1] - xy[i - 1][1], xy[i][0] - xy[i - 1][0]);
@@ -90,28 +80,45 @@ export function buildPath(road: Road): PathPoint[] {
     if (diff > Math.PI) diff = 2 * Math.PI - diff;
     return (diff * 180) / Math.PI > 25;
   };
-  const clampIdx = (i: number) => Math.max(0, Math.min(xy.length - 1, i));
+  // Centripetal Catmull-Rom fit through the RAW points, sampled at uniform
+  // arc length. This replaces a hand-rolled resampler that used the classic
+  // UNIFORM Catmull-Rom basis matrix — the exact same loop/cusp-prone
+  // parametrization already fixed one level up in Road.tsx's own curve
+  // (catmullRomThrough uses 'centripetal' for this reason). A real route can
+  // include a near-180deg reversal (e.g. a short local-street route with a
+  // U-turn maneuver) close together in raw points, and the uniform variant
+  // can bow the fitted curve out into an actual self-intersecting loop right
+  // there — confirmed by a screenshot of the rendered road ribbon crossing
+  // itself in an X, which is what corrupted the vehicle's derived heading
+  // into spinning instead of turning. A loop baked in at THIS stage, in the
+  // dense points every downstream system (Road.tsx's later re-fit,
+  // Infrastructure, Vehicles) builds from, can't be un-looped after the fact
+  // — this is the one place that actually has to not loop in the first place.
+  const planarCurve = new THREE.CatmullRomCurve3(
+    xy.map(([x, y]) => new THREE.Vector3(x, y, 0)),
+    false,
+    "centripetal"
+  );
+  const curveLen = planarCurve.getLength();
+  const steps = Math.max(2, Math.round(curveLen / RESAMPLE_SPACING_M));
 
-  // Catmull-Rom resample: for each raw segment [i, i+1], step through t in
-  // [0, 1) at ~RESAMPLE_SPACING_M intervals. t=0 lands exactly on raw vertex i
-  // (a property of Catmull-Rom splines), so the hazard flag transfers over
-  // without duplicating onto every new sub-point near that vertex.
   const dense: { x: number; y: number; elev: number; hazard: boolean }[] = [];
-  for (let i = 0; i < xy.length - 1; i++) {
-    const p0 = xy[clampIdx(i - 1)], p1 = xy[i], p2 = xy[i + 1], p3 = xy[clampIdx(i + 2)];
-    const segLen = rawCum[i + 1] - rawCum[i];
-    const steps = Math.max(1, Math.round(segLen / RESAMPLE_SPACING_M));
-    for (let s = 0; s < steps; s++) {
-      const t = s / steps;
-      const t2 = t * t, t3 = t2 * t;
-      const x = 0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
-      const y = 0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
-      const elev = rawElev(i) + (rawElev(i + 1) - rawElev(i)) * t;
-      dense.push({ x, y, elev, hazard: s === 0 && rawHazard(i) });
-    }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const pt = planarCurve.getPointAt(t);
+    const elev = -t * totalDrop + Math.sin(i * 1.7) * (slopeFrac > 0.05 ? 1.2 : 0.15);
+    dense.push({ x: pt.x, y: pt.y, elev, hazard: false });
   }
-  const lastRaw = xy[xy.length - 1];
-  dense.push({ x: lastRaw[0], y: lastRaw[1], elev: rawElev(xy.length - 1), hazard: rawHazard(xy.length - 1) });
+
+  // Hazard flags are about the RAW route's own sharp-turn vertices, not the
+  // resampled density — map each flagged raw vertex onto whichever new dense
+  // sample sits closest to it by fraction along the route.
+  const rawTotal = rawCum[rawCum.length - 1] || 1;
+  for (let i = 1; i < xy.length - 1; i++) {
+    if (!rawHazard(i)) continue;
+    const idx = Math.max(0, Math.min(steps, Math.round((rawCum[i] / rawTotal) * steps)));
+    dense[idx].hazard = true;
+  }
 
   let cum = 0;
   const points: PathPoint[] = dense.map((p, i) => {
@@ -177,8 +184,66 @@ export function perpendicular(heading: number): [number, number] {
 }
 
 export function catmullRomThrough(points: PathPoint[]): THREE.CatmullRomCurve3 {
+  // 'catmullrom' (three.js's name for the classic UNIFORM parametrization)
+  // with a hand-tuned tension looked fine on hand-placed, evenly-spaced
+  // control points, but real GPS-derived road data is never evenly spaced —
+  // buildPath's per-raw-segment resampling produces denser points through
+  // some stretches than others, and the uniform variant is well-documented
+  // (see three.js's own CatmullRomCurve3 source/comments, citing Yuksel's
+  // "On the Parameterization of Catmull-Rom Curves" paper) to loop and cusp
+  // exactly where control-point spacing is uneven — which is what kept
+  // showing up as roads twisting/folding on some real routes even after
+  // fixing the sampling and tension separately. 'centripetal' is three.js's
+  // OWN default for this reason: it's the standard fix for irregular real-
+  // world point data, not a per-tension tuning problem. It ignores the
+  // tension argument entirely (only 'catmullrom' uses it).
   const vecs = points.map((p) => new THREE.Vector3(...toWorld(p.x, p.y, p.elev)));
-  return new THREE.CatmullRomCurve3(vecs, false, "catmullrom", 0.15);
+  return new THREE.CatmullRomCurve3(vecs, false, "centripetal");
+}
+
+/** Builds the EXACT same 3D curve Road.tsx renders the asphalt/lane-marking/
+ * edge-line geometry from (buildPath's points refit through catmullRomThrough).
+ * Anything placed by sampling THIS curve — not by re-walking buildPath's raw
+ * point list with sampleAlongPath/perpendicular, a totally different (older,
+ * 2D, non-arc-length) system — is guaranteed to land exactly on Road.tsx's
+ * rendered surface/lines, because it's the same curve object type sampled the
+ * same way. Guardrails/lamps previously used the old system and its offset
+ * distance could match Road.tsx's edge-line offset in NUMBER but still miss
+ * the actual rendered line's position, because the two were tracking two
+ * different curves fit through the same underlying points. */
+export function buildRoadCurve(road: Road): { curve: THREE.CatmullRomCurve3; length: number } {
+  const curve = catmullRomThrough(buildPath(road));
+  return { curve, length: curve.getLength() };
+}
+
+const CURVE_UP = new THREE.Vector3(0, 1, 0);
+
+export interface CurvePoint {
+  /** World-space position exactly on the rendered curve. */
+  point: THREE.Vector3;
+  /** atan2(tangent.z, tangent.x) — identical convention to PathPoint.heading
+   * (verified: toWorld's (x,y,elev)->(x,elev,-y) makes world tangent.z equal
+   * to the same -dy term PathPoint.heading's atan2 uses), so any rotation
+   * math already written against p.heading/-p.heading needs no changes. */
+  heading: number;
+  /** World-space, always lies flat in the XZ plane (cross of any vector with
+   * (0,1,0) has zero Y component) — a unit "sideways" direction from the
+   * curve, the same role perpendicular(heading) played, but derived from the
+   * curve's own true tangent instead of a separately-computed 2D bisector. */
+  binormal: THREE.Vector3;
+}
+
+/** Samples buildRoadCurve's curve at real arc-length distance `s` along the
+ * road (clamped to the curve's actual length) — the drop-in replacement for
+ * `sampleAlongPath(points, s)` + `perpendicular(p.ribbonHeading)` wherever a
+ * prop needs to land exactly on Road.tsx's rendered surface. */
+export function sampleRoadCurveAt(curve: THREE.CatmullRomCurve3, curveLength: number, s: number): CurvePoint {
+  const t = curveLength > 1e-6 ? Math.max(0, Math.min(1, s / curveLength)) : 0;
+  const point = curve.getPointAt(t);
+  const tangent = curve.getTangentAt(t).normalize();
+  const binormal = new THREE.Vector3().crossVectors(tangent, CURVE_UP).normalize();
+  const heading = Math.atan2(tangent.z, tangent.x);
+  return { point, heading, binormal };
 }
 
 /** Deterministic pseudo-random generator seeded by a string, for stable procedural scenery. */

@@ -1,16 +1,14 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import type { Road } from "../../types";
-import { buildPath, toWorld, perpendicular } from "../../three/geometryUtils";
-import { groundTexture } from "../../three/textures";
-import { createTerrainHeightSampler, terrainSeedFor } from "../../three/terrainHeight";
+import type { Road } from "../../../types";
+import { buildPath, toWorld, perpendicular, roadHalfWidth } from "../../../three/geometryUtils";
+import { groundTexture } from "../../../three/textures";
+import { createTerrainHeightSampler, terrainSeedFor } from "../../../three/terrainHeight";
 
 // Low valley / mid slope / high ridge tints, blended per-vertex by height. These
 // MULTIPLY the ground texture (vertexColors + map), so they have to sit near white
-// — the previous near-black values (#161c29 etc.) were scaling the ground texture
-// down to ~8% brightness, which is most of why the terrain read as a black void
-// no matter what the noise/lighting did. Greener low ground, sun-bleached ridges.
+// — near-black values would scale the ground texture down to near-invisible.
 const VALLEY_COLOR = new THREE.Color("#a8b98c");
 const SLOPE_COLOR = new THREE.Color("#ffffff");
 const RIDGE_COLOR = new THREE.Color("#d9d2b6");
@@ -29,20 +27,25 @@ export function Terrain({ road }: { road: Road }) {
 
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerZ = (bounds.minZ + bounds.maxZ) / 2;
-  // Big enough that the edge is always past the fog's far distance (see Scene.tsx) —
-  // a visible flat-plane silhouette floating in the black void was the single
-  // worst "this looks fake" tell in the whole scene.
-  const sizeX = Math.max(bounds.maxX - bounds.minX + 3200, 3400);
-  const sizeZ = Math.max(bounds.maxZ - bounds.minZ + 3200, 3400);
-
   const isHilly = road.features.slope_pct > 5;
-  const halfWidth = Math.max(2, road.features.lanes) * 1.7;
+  const halfWidth = roadHalfWidth(road);
+
+  // Sized to the road's own bounding box plus just enough margin to cover
+  // Scenery.tsx's furthest "back row" placements (halfWidth + up to ~34m out,
+  // plus the object's own footprint) — a flat 3200m pad on every road (previously
+  // large enough to push the terrain edge past the fog regardless of route
+  // length) left a huge empty apron of ground around short/tight routes once
+  // real route lengths stopped being clamped to ~500m. This can let the plane's
+  // edge peek out under an extreme user-driven zoom-out (maxDistance=700 on
+  // OrbitControls), but reads as an actual road-sized patch of terrain instead
+  // of a mostly-empty field for the overwhelming majority of camera positions.
+  const TERRAIN_MARGIN_M = 130;
+  const sizeX = Math.max(bounds.maxX - bounds.minX + TERRAIN_MARGIN_M * 2, 500);
+  const sizeZ = Math.max(bounds.maxZ - bounds.minZ + TERRAIN_MARGIN_M * 2, 500);
 
   // Single ground-truth height function shared by the terrain mesh below and (via
   // the road's own per-point elevation, which this sampler blends toward near the
-  // corridor) the road ribbon and edge props — see terrainHeight.ts. Replaces a
-  // flat base plane with independent ripple noise, which sat at one constant
-  // offset regardless of how much the road itself climbed or dropped.
+  // corridor) the road ribbon and edge props — see terrainHeight.ts.
   const sampler = useMemo(
     () => createTerrainHeightSampler(points, halfWidth, isHilly, terrainSeedFor(road.id, points.length)),
     [points, halfWidth, isHilly, road.id]
@@ -97,7 +100,7 @@ export function Terrain({ road }: { road: Road }) {
     if (!road.cliff_scenario) return null;
     // A visible ~3.5m dirt shoulder sits between the road edge and the drop, so the
     // cliff face reads as a distinct hillside rather than merging with the road
-    // ribbon at a glance (it previously started right at the road edge).
+    // ribbon at a glance.
     const shoulder = 3.5;
     const positions: number[] = [];
     const uvs: number[] = [];
@@ -141,10 +144,6 @@ export function Terrain({ road }: { road: Road }) {
             ref={waterRef}
             map={waterTex}
             color="#3f7fa6"
-            // metalness has to stay ~0 here: there is no environment map in the
-            // scene (the night HDRI was removed with the daylight conversion), and
-            // a metallic surface with nothing to reflect renders as a flat gray
-            // sheet — which is exactly how the lake was reading.
             roughness={0.22}
             metalness={0}
             transparent

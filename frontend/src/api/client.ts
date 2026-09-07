@@ -1,5 +1,5 @@
 import type {
-  Road, SimResult, InterventionOption, InterventionSimulateResult,
+  Road, RoadSummary, SimResult, InterventionOption, InterventionSimulateResult,
   OptimizeResult, PriorityMapResult, Objective,
 } from "../types";
 
@@ -19,6 +19,7 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => req<{ status: string; live_osm_enabled: boolean }>("/health"),
+  knownRoads: () => req<RoadSummary[]>("/roads"),
   randomRoad: (live = true) => req<Road>(`/roads/random?live=${live}`),
   getRoad: (id: string) => req<Road>(`/roads/${encodeURIComponent(id)}`),
   catalog: (roadId: string) => req<InterventionOption[]>(`/interventions/catalog/${encodeURIComponent(roadId)}`),

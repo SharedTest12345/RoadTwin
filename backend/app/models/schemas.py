@@ -94,11 +94,45 @@ class Road(BaseModel):
     cliff_scenario: bool = False
 
 
+class RoadSummary(BaseModel):
+    """Lightweight per-road record for the Home map: enough to draw the road and
+    populate its preview card without shipping the full simulation-ready payload
+    (RawRoad context, sim frames, etc.) that GET /roads/{road_id} returns."""
+    id: str
+    name: str
+    source: str  # "osm" | "osrm" | "demo"
+    region: str
+    center: LatLng
+    points: List[LatLng]
+    length_m: float
+    lanes: int
+    speed_limit_kmh: float
+    estimated_volume_vph: float
+    risk_score: float
+    safety_score: float
+    stars: float
+    category: str
+    summary: str
+    cliff_scenario: bool
+    has_sidewalk: bool
+    has_lighting: bool
+    guardrail_present: bool
+
+
 class VehicleFrame(BaseModel):
+    # Arc-length position (+ signed lateral lane offset) along the road's own
+    # path, not a raw x/y — the frontend resamples the same real points into a
+    # smooth Catmull-Rom curve for rendering (Road.tsx/CameraRig/etc all read
+    # off that curve), while this sim's `lookup()` walks the raw, sparser point
+    # list as straight chords. Sending world x/y computed from the chord version
+    # put vehicles visibly off the smooth rendered curve on any real bend — a
+    # car would cut inside the chord while the road surface arced outward.
+    # Sending `s` instead lets the frontend re-sample its OWN smooth curve at
+    # the same arc length, so the vehicle always sits exactly on the curve it's
+    # actually rendered against, on any road.
     id: int
-    x: float
-    y: float
-    heading_deg: float
+    s: float
+    lane_offset_m: float
     v_ms: float
     lane: int
     braking: bool = False
@@ -114,8 +148,7 @@ class ConflictEvent(BaseModel):
     vehicle_a: int
     vehicle_b: int
     ttc_s: float
-    x: float
-    y: float
+    s: float
 
 
 class SimMetrics(BaseModel):
@@ -138,7 +171,7 @@ class InterventionOption(BaseModel):
     id: str
     name: str
     category: str
-    cost_estimate_inr: float
+    cost_estimate_usd: float
     complexity: str  # low | medium | high
     description: str
     applicable: bool = True
@@ -181,7 +214,7 @@ class ComboEvaluation(BaseModel):
     names: List[str]
     risk_after: float
     risk_reduction: float
-    cost_estimate_inr: float
+    cost_estimate_usd: float
     est_delay_after_s: float
     est_conflict_reduction_pct: float
     objective_score: float
@@ -205,7 +238,7 @@ class PriorityMapEntry(BaseModel):
     priority_score: float
     traffic_exposure: float
     pedestrian_exposure: float
-    estimated_cost_to_fix_inr: float
+    estimated_cost_to_fix_usd: float
 
 
 class PriorityMapResult(BaseModel):

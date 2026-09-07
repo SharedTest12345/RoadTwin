@@ -55,14 +55,14 @@ def optimize(geometry: RoadGeometry, features: RoadFeatures, objective: str,
         elif objective == "traffic":
             score = delay_reduction + conflict_reduction_pct * 0.1
         elif objective == "budget":
-            score = risk_reduction / max(cost / 100000.0, 0.1)
+            score = risk_reduction / max(cost / 80000.0, 0.1)
         else:  # balanced
             score = risk_reduction * 1.0 + delay_reduction * 0.4 + conflict_reduction_pct * 0.05 - cost_norm * 10
 
         evaluations.append(ComboEvaluation(
             intervention_ids=combo, names=ie.names_for(combo),
             risk_after=round(risk_after, 1), risk_reduction=round(risk_reduction, 1),
-            cost_estimate_inr=cost, est_delay_after_s=round(delay_after, 1),
+            cost_estimate_usd=cost, est_delay_after_s=round(delay_after, 1),
             est_conflict_reduction_pct=round(conflict_reduction_pct, 1),
             objective_score=round(score, 2),
         ))
@@ -70,7 +70,7 @@ def optimize(geometry: RoadGeometry, features: RoadFeatures, objective: str,
     evaluations.sort(key=lambda e: -e.objective_score)
     best = evaluations[0] if evaluations else ComboEvaluation(
         intervention_ids=[], names=[], risk_after=baseline_risk, risk_reduction=0,
-        cost_estimate_inr=0, est_delay_after_s=baseline_delay, est_conflict_reduction_pct=0, objective_score=0,
+        cost_estimate_usd=0, est_delay_after_s=baseline_delay, est_conflict_reduction_pct=0, objective_score=0,
     )
 
     if best.intervention_ids:
@@ -78,7 +78,7 @@ def optimize(geometry: RoadGeometry, features: RoadFeatures, objective: str,
             f"Evaluated {len(evaluations)} intervention combinations under the '{objective}' objective. "
             f"Best result: {' + '.join(best.names)} — reduces risk from {baseline_risk:.0f} to "
             f"{best.risk_after:.0f} ({best.risk_reduction:.0f} point reduction) at an estimated cost of "
-            f"₹{best.cost_estimate_inr:,.0f}, with simulated delay moving from {baseline_delay:.1f}s to "
+            f"${best.cost_estimate_usd:,.0f}, with simulated delay moving from {baseline_delay:.1f}s to "
             f"{best.est_delay_after_s:.1f}s."
         )
     else:

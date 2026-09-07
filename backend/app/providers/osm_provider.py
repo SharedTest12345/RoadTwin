@@ -26,12 +26,12 @@ HIGHWAY_CLASSES = "primary|secondary|tertiary|residential|trunk|unclassified|liv
 # across) so a single Overpass query returns quickly — a full-city bbox can hold
 # thousands of ways and take 10s+ to process server-side.
 REGIONS = [
-    ("Bengaluru, India", (12.955, 77.590, 12.985, 77.625)),
-    ("Lonavala Ghat, Maharashtra, India", (18.715, 73.375, 18.755, 73.415)),
-    ("Mumbai, India", (19.110, 72.835, 19.140, 72.870)),
-    ("New Delhi, India", (28.560, 77.190, 28.590, 77.225)),
-    ("Gurugram NH48, India", (28.430, 77.020, 28.460, 77.055)),
-    ("Alappuzha Backwaters, Kerala, India", (9.485, 76.320, 9.515, 76.355)),
+    ("San Francisco, California, USA", (37.760, -122.450, 37.790, -122.415)),
+    ("Big Sur, California, USA", (36.245, -121.810, 36.280, -121.775)),
+    ("Manhattan, New York, USA", (40.755, -73.990, 40.780, -73.960)),
+    ("Golden, Colorado, USA", (39.720, -105.245, 39.750, -105.210)),
+    ("Chicago Loop, Illinois, USA", (41.870, -87.640, 41.895, -87.615)),
+    ("Seattle, Washington, USA", (47.600, -122.350, 47.625, -122.320)),
 ]
 
 

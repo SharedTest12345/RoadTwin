@@ -71,51 +71,51 @@ _DEMO_ROADS = {}
 
 
 def _build_catalog():
-    _DEMO_ROADS["ghat_cliff_road"] = _road(
-        "ghat_cliff_road", "Ghat Cliff Road, Western Ghats", "Maharashtra, India",
-        (18.7480, 73.3792), _switchback(16, 620, 150, 70),
+    _DEMO_ROADS["pch_cliff_road"] = _road(
+        "pch_cliff_road", "Pacific Coast Highway, Big Sur", "California, USA",
+        (36.2704, -121.8081), _switchback(16, 620, 150, 70),
         tags=dict(highway="tertiary", lanes=2, maxspeed_kmh=50, oneway=False,
                   surface="asphalt", lit=False, sidewalk="no", bridge=False),
         water=True, guardrail=False, signals=0, crossings=0, intersections=1, slope=11.5,
     )
     _DEMO_ROADS["busy_intersection"] = _road(
-        "busy_intersection", "MG Road Junction", "Bengaluru, India",
-        (12.9752, 77.6068), _straight_with_kink(9, 480, 20),
+        "busy_intersection", "Michigan Ave & Wacker Dr", "Chicago, Illinois, USA",
+        (41.8875, -87.6243), _straight_with_kink(9, 480, 20),
         tags=dict(highway="primary", lanes=4, maxspeed_kmh=60, oneway=False,
                   surface="asphalt", lit=True, sidewalk="both", bridge=False),
         water=False, guardrail=False, signals=2, crossings=2, intersections=5, slope=0.5,
     )
     _DEMO_ROADS["school_corridor"] = _road(
-        "school_corridor", "Green Park School Corridor", "New Delhi, India",
-        (28.5580, 77.2005), _gentle_curve(10, 400, 15),
+        "school_corridor", "Lincoln Elementary School Corridor", "Denver, Colorado, USA",
+        (39.7392, -104.9903), _gentle_curve(10, 400, 15),
         tags=dict(highway="residential", lanes=2, maxspeed_kmh=40, oneway=False,
                   surface="asphalt", lit=False, sidewalk="no", bridge=False),
         schools=2, water=False, guardrail=False, signals=0, crossings=1, intersections=3, slope=0.8,
     )
     _DEMO_ROADS["highway_merge"] = _road(
-        "highway_merge", "NH48 Merge Lane", "Gurugram, India",
-        (28.4380, 77.0270), _gentle_curve(11, 700, 60),
+        "highway_merge", "I-70 Mountain Merge", "Golden, Colorado, USA",
+        (39.7391, -105.2270), _gentle_curve(11, 700, 60),
         tags=dict(highway="trunk", lanes=3, maxspeed_kmh=100, oneway=True,
                   surface="asphalt", lit=True, sidewalk="no", bridge=False),
         water=False, guardrail=True, signals=0, crossings=0, intersections=1, slope=1.2,
     )
     _DEMO_ROADS["riverside_village_road"] = _road(
-        "riverside_village_road", "Riverside Village Road", "Alappuzha, Kerala, India",
-        (9.4981, 76.3388), _switchback(12, 480, 60, 5),
+        "riverside_village_road", "Bayou Riverside Road", "Louisiana, USA",
+        (29.9511, -90.0715), _switchback(12, 480, 60, 5),
         tags=dict(highway="unclassified", lanes=2, maxspeed_kmh=45, oneway=False,
                   surface="gravel", lit=False, sidewalk="no", bridge=False),
         water=True, guardrail=False, signals=0, crossings=0, intersections=2, slope=2.0,
     )
     _DEMO_ROADS["urban_congestion_street"] = _road(
-        "urban_congestion_street", "Andheri Congestion Street", "Mumbai, India",
-        (19.1197, 72.8468), _urban_grid_leg(9, 380),
+        "urban_congestion_street", "Market Street Congestion", "San Francisco, California, USA",
+        (37.7879, -122.4074), _urban_grid_leg(9, 380),
         tags=dict(highway="secondary", lanes=3, maxspeed_kmh=45, oneway=False,
                   surface="asphalt", lit=True, sidewalk="left", bridge=False),
         hospitals=1, water=False, guardrail=False, signals=3, crossings=3, intersections=6, slope=0.3,
     )
     _DEMO_ROADS["pedestrian_market_road"] = _road(
-        "pedestrian_market_road", "Chandni Chowk Market Road", "Old Delhi, India",
-        (28.6506, 77.2303), _urban_grid_leg(8, 300),
+        "pedestrian_market_road", "Pike Place Market Road", "Seattle, Washington, USA",
+        (47.6097, -122.3421), _urban_grid_leg(8, 300),
         tags=dict(highway="residential", lanes=2, maxspeed_kmh=30, oneway=False,
                   surface="asphalt", lit=True, sidewalk="no", bridge=False),
         schools=1, hospitals=1, water=False, guardrail=False, signals=1, crossings=0, intersections=4, slope=0.2,

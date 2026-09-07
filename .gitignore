@@ -8,6 +8,7 @@ backend/.venv/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/uvicorn*.log
+backend/roadtwin.db
 
 # Editor / OS
 .DS_Store

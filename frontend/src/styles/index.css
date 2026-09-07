@@ -5,24 +5,61 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
-  background: #05070a;
-  color: #e6edf3;
-  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #06090e;
+  color: #e2e8f0;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   overflow: hidden;
+  /* Subtle atmospheric wash — cheap CSS, keeps the near-black base from
+     reading as a flat, empty void. */
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(0, 120, 255, 0.07) 0%, transparent 60%),
+    radial-gradient(circle at 100% 100%, rgba(0, 240, 255, 0.05) 0%, transparent 50%);
+  background-attachment: fixed;
 }
 
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #26313f; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #3a4a5c; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #00f0ff; }
 
 .mono { font-family: 'JetBrains Mono', 'Consolas', monospace; }
+.font-display { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+
+/* Gradient "glow text" treatment for the brand mark / hero headings. */
+.text-glow-gradient {
+  background: linear-gradient(to right, #ffffff, #a5f3fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* --- Shared design-system primitives ---------------------------------------
+   One coherent set of surface/typography classes instead of every screen
+   re-inventing its own text size and border/radius combination. */
+.label-caption { @apply text-2xs uppercase tracking-wider text-ink-400 font-semibold mono; }
+.panel-title { @apply text-xs uppercase tracking-wider text-ink-300 font-semibold; }
+.surface-card { @apply bg-ink-850/90 border border-white/10 rounded-lg; }
+.surface-elevated {
+  @apply rounded-xl border border-white/10;
+  background: rgba(12, 18, 30, 0.78);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.chip { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-2xs font-semibold mono; }
+.source-tag { @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-semibold tracking-wide mono border border-white/10 text-ink-400; }
 
 @keyframes pulse-glow {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
 .pulse-glow { animation: pulse-glow 1.6s ease-in-out infinite; }
+
+@keyframes pulse-border {
+  0%, 100% { box-shadow: 0 0 16px rgba(0, 240, 255, 0.4); }
+  50% { box-shadow: 0 0 26px rgba(0, 240, 255, 0.65); }
+}
+.pulse-border-glow { animation: pulse-border 3s infinite ease-in-out; }
 
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(6px); }
@@ -35,3 +72,50 @@ body {
   to { transform: scaleX(1); }
 }
 .bar-grow { animation: bar-grow 0.6s cubic-bezier(0.16, 1, 0.3, 1); transform-origin: left; }
+
+/* Plain OSM tiles are bright/colorful; invert+rotate hue to fit RoadTwin's
+   ink-dark UI without a paid/keyed dark-tile provider. Scoped to the tile
+   pane only so road polylines/markers (separate Leaflet panes) keep their
+   real semantic colors. */
+.atlas-map-dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.88) saturate(0.85);
+}
+
+/* Dark-glass reskin for Leaflet's own chrome (zoom control, popups) so they
+   match the rest of the HUD instead of Leaflet's default white UI. */
+.atlas-map-dark .leaflet-control-zoom {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+}
+.atlas-map-dark .leaflet-control-zoom-in,
+.atlas-map-dark .leaflet-control-zoom-out {
+  background-color: rgba(12, 18, 30, 0.85) !important;
+  color: #f1f5f9 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.atlas-map-dark .leaflet-control-zoom-in:hover,
+.atlas-map-dark .leaflet-control-zoom-out:hover {
+  background-color: rgba(0, 240, 255, 0.2) !important;
+  color: #00f0ff !important;
+}
+
+/* Print only the report modal: the 3D canvas, nav, and docks otherwise print
+   as extra pages beneath it since a print layout doesn't respect the fixed
+   overlay's stacking the way the screen does. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #report-modal-root,
+  #report-modal-root * {
+    visibility: visible;
+  }
+  #report-modal-root {
+    position: absolute;
+    inset: 0;
+    left: 0;
+    top: 0;
+  }
+}

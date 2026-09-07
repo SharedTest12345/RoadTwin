@@ -85,11 +85,32 @@ export interface Road {
   cliff_scenario: boolean;
 }
 
+export interface RoadSummary {
+  id: string;
+  name: string;
+  source: "osm" | "osrm" | "demo";
+  region: string;
+  center: LatLng;
+  points: LatLng[];
+  length_m: number;
+  lanes: number;
+  speed_limit_kmh: number;
+  estimated_volume_vph: number;
+  risk_score: number;
+  safety_score: number;
+  stars: number;
+  category: string;
+  summary: string;
+  cliff_scenario: boolean;
+  has_sidewalk: boolean;
+  has_lighting: boolean;
+  guardrail_present: boolean;
+}
+
 export interface VehicleFrame {
   id: number;
-  x: number;
-  y: number;
-  heading_deg: number;
+  s: number;
+  lane_offset_m: number;
   v_ms: number;
   lane: number;
   braking: boolean;
@@ -105,8 +126,7 @@ export interface ConflictEvent {
   vehicle_a: number;
   vehicle_b: number;
   ttc_s: number;
-  x: number;
-  y: number;
+  s: number;
 }
 
 export interface SimMetrics {
@@ -129,7 +149,7 @@ export interface InterventionOption {
   id: string;
   name: string;
   category: string;
-  cost_estimate_inr: number;
+  cost_estimate_usd: number;
   complexity: "low" | "medium" | "high";
   description: string;
   applicable: boolean;
@@ -151,7 +171,7 @@ export interface ComboEvaluation {
   names: string[];
   risk_after: number;
   risk_reduction: number;
-  cost_estimate_inr: number;
+  cost_estimate_usd: number;
   est_delay_after_s: number;
   est_conflict_reduction_pct: number;
   objective_score: number;
@@ -175,7 +195,7 @@ export interface PriorityMapEntry {
   priority_score: number;
   traffic_exposure: number;
   pedestrian_exposure: number;
-  estimated_cost_to_fix_inr: number;
+  estimated_cost_to_fix_usd: number;
 }
 
 export interface PriorityMapResult {

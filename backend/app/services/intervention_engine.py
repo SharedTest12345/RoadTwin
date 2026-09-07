@@ -13,7 +13,7 @@ class InterventionDef:
     id: str
     name: str
     category: str
-    cost_estimate_inr: float
+    cost_estimate_usd: float
     complexity: str
     description: str
     apply_fn: Callable[[RoadFeatures], None]
@@ -54,31 +54,31 @@ def _markings(f: RoadFeatures):
 
 
 CATALOG: List[InterventionDef] = [
-    InterventionDef("guardrail", "Install Guardrail", "Road safety", 150000, "low",
+    InterventionDef("guardrail", "Install Guardrail", "Road safety", 65000, "low",
                      "Physical barrier along curves and drop-offs to prevent run-off-road crashes.",
                      _guardrail, twin_key="guardrail_active",
                      applicable_check=lambda f: (not f.guardrail_present, "Guardrail already present")),
-    InterventionDef("speed_reduction", "Reduce Speed Environment", "Traffic", 25000, "low",
+    InterventionDef("speed_reduction", "Reduce Speed Environment", "Traffic", 8000, "low",
                      "Lower posted speed limit with traffic calming (signage, humps) to reduce speed environment by ~25%.",
-                     _speed_reduction, speed_scale=0.75,
+                     _speed_reduction, speed_scale=0.75, twin_key="speed_bumps_active",
                      applicable_check=lambda f: (f.speed_limit_kmh > 25, "Speed already low")),
-    InterventionDef("street_lighting", "Add Street Lighting", "Road safety", 90000, "medium",
+    InterventionDef("street_lighting", "Add Street Lighting", "Road safety", 45000, "medium",
                      "Install street lighting to improve nighttime visibility along the corridor.",
                      _lighting, twin_key="lighting_active",
                      applicable_check=lambda f: (not f.has_lighting, "Lighting already present")),
-    InterventionDef("pedestrian_crossing", "Add Pedestrian Crossing", "Pedestrian", 60000, "low",
+    InterventionDef("pedestrian_crossing", "Add Pedestrian Crossing", "Pedestrian", 25000, "low",
                      "Add marked/signalized pedestrian crossing(s) to reduce pedestrian exposure.",
                      _crossing, twin_key="crossing_active",
                      applicable_check=lambda f: (True, "")),
-    InterventionDef("sidewalk", "Add Sidewalk", "Pedestrian", 220000, "high",
+    InterventionDef("sidewalk", "Add Sidewalk", "Pedestrian", 180000, "high",
                      "Construct dedicated sidewalk to separate pedestrians from vehicle traffic.",
                      _sidewalk, twin_key="sidewalk_active",
                      applicable_check=lambda f: (not f.has_sidewalk, "Sidewalk already present")),
-    InterventionDef("signal_control", "Improve Intersection Control", "Traffic", 120000, "medium",
+    InterventionDef("signal_control", "Improve Intersection Control", "Traffic", 150000, "medium",
                      "Add/retime a traffic signal to break up conflict-prone platoons at intersections.",
                      _signal, add_signal=True, twin_key="signal_active",
                      applicable_check=lambda f: (f.intersection_density_per_km > 1.0, "Low intersection density")),
-    InterventionDef("road_markings", "Improve Road Markings", "Road safety", 18000, "low",
+    InterventionDef("road_markings", "Improve Road Markings", "Road safety", 6000, "low",
                      "Repaint lane/curve warning markings to improve driver perception of curvature ahead.",
                      _markings, twin_key="markings_active",
                      applicable_check=lambda f: (f.sharp_turn_count > 0 or f.max_curvature_deg_per_20m > 5,
@@ -93,7 +93,7 @@ def get_catalog(features: RoadFeatures) -> List[InterventionOption]:
     for d in CATALOG:
         applicable, reason = d.applicable_check(features)
         out.append(InterventionOption(
-            id=d.id, name=d.name, category=d.category, cost_estimate_inr=d.cost_estimate_inr,
+            id=d.id, name=d.name, category=d.category, cost_estimate_usd=d.cost_estimate_usd,
             complexity=d.complexity, description=d.description,
             applicable=applicable, applicable_reason=(reason or None),
         ))
@@ -118,7 +118,7 @@ def apply_interventions(features: RoadFeatures, ids: List[str]) -> Tuple[RoadFea
 
 
 def total_cost(ids: List[str]) -> float:
-    return sum(BY_ID[i].cost_estimate_inr for i in ids if i in BY_ID)
+    return sum(BY_ID[i].cost_estimate_usd for i in ids if i in BY_ID)
 
 
 def names_for(ids: List[str]) -> List[str]:

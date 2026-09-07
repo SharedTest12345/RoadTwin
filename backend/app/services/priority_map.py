@@ -43,7 +43,7 @@ def _estimate_fix_cost(road: Road) -> float:
         ids.append("pedestrian_crossing")
     if f.intersection_density_per_km > 3 and f.signal_count == 0:
         ids.append("signal_control")
-    return max(ie.total_cost(ids), 15000.0)
+    return max(ie.total_cost(ids), 10000.0)
 
 
 def _entry(road: Road) -> PriorityMapEntry:
@@ -54,18 +54,26 @@ def _entry(road: Road) -> PriorityMapEntry:
     traffic_exposure = 0.7 + min(f.estimated_volume_vph, 2000.0) / 2000.0 * 0.7
     pedestrian_exposure = 0.85 + (0.35 if f.near_school_or_hospital else 0.0) + (0.2 if not f.has_sidewalk else 0.0)
     cost = _estimate_fix_cost(road)
-    cost_factor = max(0.8, min(1.6, 0.8 + cost / 300000.0 * 0.6))
+    cost_factor = max(0.8, min(1.6, 0.8 + cost / 250000.0 * 0.6))
     priority = road.risk.score_0_100 * traffic_exposure * pedestrian_exposure / cost_factor
     return PriorityMapEntry(
         road_id=road.id, name=road.name, region=road.region, center=road.center,
         risk_score=road.risk.score_0_100, category=_bucket(road.risk.category),
         priority_score=round(priority, 1), traffic_exposure=round(traffic_exposure, 2),
-        pedestrian_exposure=round(pedestrian_exposure, 2), estimated_cost_to_fix_inr=cost,
+        pedestrian_exposure=round(pedestrian_exposure, 2), estimated_cost_to_fix_usd=cost,
     )
 
 
 def build(include_live_sample: bool = True) -> PriorityMapResult:
-    roads: List[Road] = road_store.list_demo_roads()
+    # Every road actually scanned so far (persisted in road_db — same source
+    # the Home map's catalog reads from), so a road a user just scanned shows
+    # up here too. Demo roads are deliberately excluded (same reasoning as the
+    # Home map: their geometry is an authored illustrative curve, not a real
+    # scanned road, so ranking them alongside genuinely scanned roads is
+    # misleading) — they remain reachable individually via the Demo button /
+    # ?autodemo=. `include_live_sample` additionally fetches a NEW live
+    # discovery batch on top of that when explicitly requested.
+    roads: List[Road] = road_store.list_known_roads()
     if include_live_sample:
         roads += road_store.list_live_sample()
 

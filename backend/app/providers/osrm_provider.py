@@ -23,35 +23,34 @@ from ..services.geometry import polyline_length_m, haversine_m
 
 log = logging.getLogger("roadtwin.osrm")
 
-# The scene/sim were sized around the demo catalog's ~400-700m road spans (terrain
-# plane, camera framing/fog falloff, traffic sim horizon). OSRM routes actual
-# road-network distance between two waypoints, which can run to several km on a
-# winding ghat road even when the waypoints themselves are close — so trim to a
-# hero-length leading segment of the real route rather than rendering the whole
-# multi-km path. 900m (the original cap) turned out to still be too long for a
-# comparatively STRAIGHT real urban road: the camera-framing math sizes distance
-# off the path's bounding-box diagonal, which for a nearly-straight road is close
-# to the full path length — at 900m that pushed most of the road past the fog's
-# effective visible range, so it (and everything on it) rendered as pure black
-# past the first ~150-200m. A curvy demo road compresses far more length into a
-# much smaller bounding box, which is what the fog/camera constants were tuned
-# against; capping straight real routes to the same length class fixes it without
-# touching fog or camera code (which has to keep working for curvy demo roads too).
-MAX_ROUTE_LENGTH_M = 500.0
+# OSRM routes actual road-network distance between two waypoints, which can run
+# to several km on a winding ghat road even when the waypoints themselves are
+# close — trimmed to a hero-length leading segment of the real route rather than
+# rendering the whole multi-km path (mainly a traffic-sim/scenery-density budget
+# concern, not a rendering one). This USED to also be constrained by camera
+# framing: the overview shot's distance was computed straight off the path's
+# bounding-box diagonal, which for a nearly-straight road is close to the full
+# path length, so a long straight route pushed most of it past the fog's
+# effective visible range and it rendered pure black past the first ~150-200m.
+# CameraRig's overview framing now clamps that distance to a fixed 65-140 unit
+# range regardless of the path's actual bounding box (see its own comment), so
+# route length no longer feeds camera distance at all — this cap can reflect
+# the real route's true dimensions on the map instead of a rendering workaround.
+MAX_ROUTE_LENGTH_M = 2000.0
 
 # Same curated real-world areas OSMProvider uses for "random road" discovery (see
 # osm_provider.REGIONS) — two waypoints placed inside each bbox, ~1-1.5km apart,
 # for OSRM to route a real driving path between. Multiple pairs per region for
 # variety across repeated "random road" calls.
 _WAYPOINT_PAIRS: List[Tuple[str, Tuple[float, float], Tuple[float, float]]] = [
-    ("Bengaluru, India", (12.958, 77.594), (12.968, 77.608)),
-    ("Bengaluru, India", (12.970, 77.600), (12.982, 77.618)),
-    ("Lonavala Ghat, Maharashtra, India", (18.720, 73.380), (18.735, 73.398)),
-    ("Lonavala Ghat, Maharashtra, India", (18.738, 73.400), (18.750, 73.412)),
-    ("Mumbai, India", (19.113, 72.840), (19.125, 72.855)),
-    ("New Delhi, India", (28.564, 77.195), (28.576, 77.210)),
-    ("Gurugram NH48, India", (28.434, 77.025), (28.448, 77.042)),
-    ("Alappuzha Backwaters, Kerala, India", (9.488, 76.325), (9.500, 76.342)),
+    ("San Francisco, California, USA", (37.774, -122.419), (37.784, -122.409)),
+    ("San Francisco, California, USA", (37.765, -122.435), (37.775, -122.422)),
+    ("Golden, Colorado, USA", (39.739, -105.227), (39.729, -105.217)),
+    ("Golden, Colorado, USA", (39.735, -105.238), (39.745, -105.223)),
+    ("Manhattan, New York, USA", (40.758, -73.986), (40.768, -73.976)),
+    ("Chicago Loop, Illinois, USA", (41.878, -87.630), (41.888, -87.620)),
+    ("Seattle, Washington, USA", (47.606, -122.332), (47.616, -122.322)),
+    ("Big Sur, California, USA", (36.270, -121.808), (36.260, -121.798)),
 ]
 
 _session = requests.Session()
@@ -164,9 +163,17 @@ class OSRMProvider(RoadDataProvider):
     name = "osrm"
 
     def get_random_road(self) -> Optional[RawRoad]:
-        pairs = _WAYPOINT_PAIRS[:]
-        random.shuffle(pairs)
-        for i, (region, a, b) in enumerate(pairs[:3]):
+        # Both waypoints are fixed per pair, so OSRM routes the identical
+        # polyline every time a given pair is used — the id has to be derived
+        # from the pair's own stable position in _WAYPOINT_PAIRS, never a
+        # random suffix, or re-scanning the same real route (a near-certainty
+        # across repeated "random" picks from only 8 pairs) mints a fresh id
+        # each time and looks like a distinct duplicate road in road_db/the
+        # Priority Map instead of updating the one real entry for it.
+        indices = list(range(len(_WAYPOINT_PAIRS)))
+        random.shuffle(indices)
+        for idx in indices[:3]:
+            region, a, b = _WAYPOINT_PAIRS[idx]
             data = _route(a, b)
             if not data:
                 continue
@@ -174,7 +181,7 @@ class OSRMProvider(RoadDataProvider):
             length = polyline_length_m([(lat, lon) for lon, lat in coords])
             if length < 40:
                 continue
-            return _route_to_road(data, region, f"{region}-{i}-{random.randint(0, 999999)}")
+            return _route_to_road(data, region, str(idx))
         return None
 
     def get_road(self, road_id: str) -> Optional[RawRoad]:
@@ -184,12 +191,14 @@ class OSRMProvider(RoadDataProvider):
         return None
 
     def list_roads(self) -> List[RawRoad]:
+        # Same stable per-pair id scheme as get_random_road — a route discovered
+        # through either method resolves to the same road_db row.
         out: List[RawRoad] = []
-        for i, (region, a, b) in enumerate(_WAYPOINT_PAIRS[:4]):
+        for idx, (region, a, b) in enumerate(_WAYPOINT_PAIRS[:4]):
             data = _route(a, b)
             if not data:
                 continue
-            road = _route_to_road(data, region, f"{region}-{i}")
+            road = _route_to_road(data, region, str(idx))
             if road:
                 out.append(road)
         return out

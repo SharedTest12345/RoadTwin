@@ -16,6 +16,13 @@ S0 = 2.0          # m minimum gap
 T_HEADWAY = 1.5   # s desired time headway
 DELTA = 4
 VEH_LEN = 4.5     # m
+# Must match the frontend's actual rendered lane width (HALF_WIDTH_PER_LANE_M * 2
+# in geometryUtils.ts). This used to be a fixed 3.2m guess independent of what
+# actually gets drawn — harmless while the two happened to be close, but once
+# the rendered lane width was widened for visual scale, this stayed at 3.2 and
+# put every vehicle roughly a meter off true lane-center, straddling the lane
+# line instead of driving inside its lane.
+LANE_WIDTH_M = 5.2
 DT = 0.2
 TTC_THRESHOLD_S = 2.5
 REACTION_LAG_S = 1.0        # baseline human driver reaction time
@@ -217,9 +224,8 @@ def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: f
                 if dv > 0.3 and gap > 0:
                     ttc = gap / dv
                     if ttc < TTC_THRESHOLD_S and pair not in follower.active_conflict_with:
-                        x, y, _ = lookup(follower.s)
                         conflicts.append(ConflictEvent(t=round(t, 1), vehicle_a=leader.id, vehicle_b=follower.id,
-                                                        ttc_s=round(ttc, 2), x=x, y=y))
+                                                        ttc_s=round(ttc, 2), s=follower.s))
                         follower.active_conflict_with.add(pair)
                 elif pair in follower.active_conflict_with:
                     follower.active_conflict_with.discard(pair)
@@ -232,12 +238,9 @@ def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: f
                 for veh in lanes_vehicles[lane_idx]:
                     if veh.finished_t is not None:
                         continue
-                    x, y, heading = lookup(veh.s)
-                    lane_offset = (lane_idx - (lanes - 1) / 2) * 3.2
-                    nx = -math.sin(math.radians(heading)) * lane_offset
-                    ny = math.cos(math.radians(heading)) * lane_offset
+                    lane_offset = (lane_idx - (lanes - 1) / 2) * LANE_WIDTH_M
                     braking = veh.v < veh.v0 * 0.6
-                    vf.append(VehicleFrame(id=veh.id, x=x + nx, y=y + ny, heading_deg=heading,
+                    vf.append(VehicleFrame(id=veh.id, s=veh.s, lane_offset_m=lane_offset,
                                             v_ms=round(veh.v, 2), lane=lane_idx, braking=braking))
             frames.append(SimFrame(t=round(t, 1), vehicles=vf))
 
