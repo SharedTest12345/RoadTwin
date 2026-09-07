@@ -29,7 +29,16 @@ export function PlaybackDock() {
     // Floating command deck — overlays the 3D viewport (positioned relative to
     // the canvas container, not the whole screen, so it's centered on the
     // viewport and never overlaps the sidebar) rather than a full-width strip.
+    // max-w/overflow-x-auto: the dock's natural content width (scrubber +
+    // metrics + 4 nav buttons) can exceed the canvas container's own width
+    // once the fixed 380px side panel eats into it — without a cap here the
+    // excess doesn't wrap or shrink, it silently renders UNDER the panel's
+    // opaque background (a later DOM sibling painting over it), which read as
+    // "the Report button is missing/cut off." Scrolling within the pill is a
+    // fallback for extreme widths; DockButton hiding its label at `xl` below
+    // is what actually keeps this from being needed at ordinary widths.
     <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-5
+                     max-w-[calc(100%-2rem)] overflow-x-auto
                      bg-ink-850 border border-ink-600/70 rounded-2xl
                      shadow-panel px-6 py-3.5 text-xs">
       <button
@@ -89,7 +98,7 @@ function DockButton({ active, onClick, icon, label }: { active: boolean; onClick
           : "border border-transparent text-ink-400 hover:text-ink-100 hover:bg-white/5"
       }`}
     >
-      {icon} {label}
+      {icon} <span className="hidden xl:inline">{label}</span>
     </button>
   );
 }
