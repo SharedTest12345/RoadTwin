@@ -74,7 +74,8 @@ than one-off values.
 INPUT DATA (OSM way geometry + tags, or demo catalog)
    -> FEATURE EXTRACTION (geometry.py + feature_extraction.py: curvature, speed, volume, lighting,
       sidewalks, crossings, signals, guardrail, slope, water/school/hospital proximity)
-   -> RISK MODEL (risk_engine.py: named, additive point contributions per factor, 0-100 score)
+   -> RISK MODEL (risk_engine.py: real published Crash Modification Factors combined
+      multiplicatively -> 0-100 score, see "Risk model" below)
    -> SIMULATION (traffic_sim.py: IDM car-following + signal phases + TTC conflict detection)
    -> INTERVENTION (intervention_engine.py: mutates the SAME feature object the risk model reads)
    -> NEW RESULT (risk model + simulation re-run on the mutated features -> before/after)
@@ -87,24 +88,68 @@ surfaces under "Estimated (not directly sourced)" in the Why panel.
 
 ### Risk model
 
-Additive, fully explainable. Each factor is a named function of real features, e.g.:
+Each present hazard factor contributes a real, published **Crash Modification Factor (CMF)** —
+the same convention FHWA's CMF Clearinghouse and the AASHTO Highway Safety Manual use — combined
+*multiplicatively* against a baseline relative risk of 1.0 (no flagged hazards). Concretely:
+`relative_risk = exp(sum(log(CMF_i)))` for every present factor, then
+`score = 100 * (1 - 1/relative_risk)` — asymptotically approaches 100 rather than hard-clamping,
+so a road with many severe hazards stays distinguishable from one with a few, instead of both
+capping at the same number the way a flat additive-then-clamp model does.
 
-- `sharp_curvature`: `4 * sharp_turn_count`, capped at 16
-- `no_guardrail`: `+12` if a hazardous curve/slope/water edge has no guardrail, else `+7`
-- `unprotected_dropoff`: `+12` if `slope_pct > 10` and no guardrail (the cliff-road scenario)
-- `no_sidewalk`: `+10` near a school/hospital, else `+4`
-- `high_vehicle_speed`, `high_traffic_volume`, `no_street_lighting`, `unlit_blind_curves`,
-  `uncontrolled_intersections`, `insufficient_crossings`, `steep_grade`, `unprotected_water_edge`
+Factors and their real sources (see `backend/app/services/risk_engine.py` for the exact constants
+and full citations in-line):
+
+- `no_guardrail`: FHWA CMF Clearinghouse aggregate for barrier installation, CMF≈0.545 (44-47%
+  run-off-road crash reduction) — inverted for absence, compounded (not stacked) when both a
+  water edge and a steep slope apply, since it's one missing barrier either way.
+- `no_sidewalk`: Gan, Shen & Rodriguez 2005 (CMF Clearinghouse #11246), CMF=0.26 near a real
+  pedestrian-exposure point (school/hospital); a labeled, smaller editorial discount elsewhere,
+  since the source study didn't separately quantify lower-exposure corridors.
+- `no_street_lighting`: FHWA Lighting Handbook, CMF=0.50 for *nighttime* crashes specifically —
+  weighted by this app's own real national night-crash share (`accident_data.NATIONAL_NIGHT_PCT`)
+  to get an honest overall-risk CMF, not the full nighttime effect applied to every crash.
+- `insufficient_crossings`: RRFB-tier CMF Clearinghouse study (#11171), consistent with this app's
+  own cost model already assuming an RRFB-tier crossing, not paint-only — deliberately NOT using a
+  marked-crosswalk-alone CMF, since Zegeer et al. 2001 (FHWA) found that can read as *worse* than
+  no marking at all on a multi-lane road above ~12,000 AADT.
+- `uncontrolled_intersections`: HSM's own signal-installation worked example, CMF=0.56 — but
+  **only below a real-world high-speed threshold**; a separate CMF Clearinghouse study on
+  high-speed arterials found signal installation CMF=1.71 there (an *increase*, from unexpected-
+  stop rear-end crashes), so this factor never fires above that speed.
+- `high_vehicle_speed`: Nilsson's power model (Nilsson 1981/2004, OECD/iRAP-endorsed) —
+  `relative_risk = (v_new/v_old)^n`, n=3 (general-purpose exponent; verified n=4 fatal / n=3
+  serious-injury / n=2 all-injury), baseline 50 km/h.
+- `tight_curve_radius`: AASHTO HSM Equation 10-13's own radius-severity term (`80.2/R`), applied
+  to a per-road implied radius derived from max heading-change — not the complete cited equation
+  (this app doesn't track individual curves' length/spiral data the full equation needs), stated
+  as a simplification rather than presented as the exact HSM number.
+- `high_traffic_volume`: HSM Safety Performance Functions consistently use a sub-linear AADT
+  exponent (~0.4-0.7 across facility types, no single universal number) — 0.5 used as an
+  explicitly-approximate midpoint, not one specific cited coefficient.
 - `historical_crash_record`: real recorded crashes near this road's actual coordinates (see
-  "Historical crash data" below) — up to `+14` from crash density, `+3` from traffic impact.
-  Unlike every other factor, this one is **not** reduced by simulated interventions: real crash
-  history is a fixed fact, not a mutable feature, so it sets a floor under how far the score can
-  drop for a road with an established crash record (see the flagship demo walkthrough below).
+  "Historical crash data" below) — the one factor backed by an actual measurement AT this
+  corridor, log-scaled and calibrated against this app's own scanned-road sample rather than an
+  external citation (the search-buffer methodology is this app's own invention, not a standard
+  measure with a published density-to-CMF conversion). Unlike every other factor, this one is
+  **not** reduced by simulated interventions: real crash history is a fixed fact, not a mutable
+  feature, so it sets a floor under how far the score can drop for a road with an established
+  crash record (see the flagship demo walkthrough below).
 
-See `backend/app/services/risk_engine.py` for the full, exact list. Total is clamped to 0-100.
+Every constant that ISN'T an independently cited number (calibration scales, log-space caps, the
+historical-density coefficient) is labeled as this app's own editorial calibration directly in
+`risk_engine.py`'s comments, not presented as equivalent to the cited CMFs — and two gaps the CMF
+research for this rewrite explicitly could NOT find a reliable published number for (lane width,
+a standalone intersection-density CMF) are left out entirely rather than filled with an invented
+one. FHWA's own guidance on combining multiple CMFs
+([PDF](https://cmfclearinghouse.fhwa.dot.gov/collateral/combining_multiple_cmfs_final.pdf)) notes
+straight multiplication can overestimate the combined effect once several CMFs target overlapping
+crash types — the asymptotic score mapping above partially self-limits this (unlike a flat
+additive clamp, which has no such damping), but a road with many simultaneously-flagged hazards is
+a reasonable upper-bound estimate consistent with that documented limitation, not a
+precision-calibrated multi-factor model.
+
 Star rating is derived from the *safety* score (`100 - risk`), matching the UI convention that more
-stars = safer: `80-100 safety -> full care applied`, mapped in `_category_label` /
-`risk.stars = round((100 - risk) / 20, 1)`.
+stars = safer: `risk.stars = round((100 - risk) / 20, 1)`.
 
 ### Historical crash data
 

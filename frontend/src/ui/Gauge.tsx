@@ -5,8 +5,8 @@ interface Props {
   strokeWidth?: number;
 }
 
-/** Circular 0-100 risk gauge — the score is the same real additive total
- * risk_engine computes, just given a visual read instead of plain text. */
+/** Circular 0-100 risk gauge — the score is the same CMF-derived relative-risk
+ * total risk_engine.py computes, just given a visual read instead of plain text. */
 export function Gauge({ score, color, size = 132, strokeWidth = 11 }: Props) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;

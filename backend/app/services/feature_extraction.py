@@ -102,11 +102,42 @@ def extract(raw: RawRoad) -> Tuple[RoadGeometry, RoadFeatures]:
     volume = DEFAULT_VOLUME_VPH.get(road_class, 300)
     estimated.append("estimated_volume_vph")  # no live traffic counter source exists in this prototype
 
-    has_sidewalk = (tags.get("sidewalk") or "no") not in ("no", "none", None)
+    # A missing `sidewalk` tag means "unknown" (OSRM-sourced roads carry NO
+    # tags at all — see osrm_provider.py's _route_to_road — and even real OSM
+    # ways often simply don't have this tag mapped), not "confirmed absent".
+    # Silently treating unknown as False (as this used to) let has_lighting's
+    # already-correct honest pattern be undermined by this field: risk_engine
+    # was scoring "we don't know" as a hard fact at full CMF weight on every
+    # single OSRM road (verified: 144/144 in this app's own scanned-road
+    # sample).
+    #
+    # "unclassified" belongs in BOTH lists below (it didn't before, for
+    # either field): per OSM's own tagging definition, highway=unclassified
+    # means "a minor public road", ordinary in character, not "road class
+    # unknown" — this codebase already treats it that way everywhere else
+    # (Scenery.tsx's own urban-road regex includes it alongside residential/
+    # tertiary). Every OSRM-sourced road defaults its highway tag to None ->
+    # "unclassified" (osrm_provider.py never has a real tag to report), so
+    # omitting it here meant "we don't have a class for this road" was
+    # silently scored the same as "this is definitely too minor a road to
+    # ever have lighting or a sidewalk" — verified: road_class was
+    # "unclassified" for 144/144 real scanned roads in this app's own sample,
+    # making that omission the dominant reason both fields read False
+    # everywhere, not the road-type-specific weighting these estimates were
+    # meant to express.
+    PLAUSIBLE_SIDEWALK_CLASSES = ("residential", "living_street", "primary", "secondary", "tertiary", "unclassified")
+    PLAUSIBLE_LIGHTING_CLASSES = ("primary", "secondary", "trunk", "motorway", "motorway_link", "unclassified")
+
+    sidewalk_tag = tags.get("sidewalk")
+    if sidewalk_tag is None:
+        has_sidewalk = road_class in PLAUSIBLE_SIDEWALK_CLASSES
+        estimated.append("has_sidewalk")
+    else:
+        has_sidewalk = sidewalk_tag not in ("no", "none")
 
     lit_tag = tags.get("lit")
     if lit_tag is None:
-        has_lighting = road_class in ("primary", "secondary", "trunk", "motorway", "motorway_link")
+        has_lighting = road_class in PLAUSIBLE_LIGHTING_CLASSES
         estimated.append("has_lighting")
     else:
         has_lighting = bool(lit_tag)
