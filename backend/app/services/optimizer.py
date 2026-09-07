@@ -11,6 +11,17 @@ from . import traffic_sim
 from . import intervention_engine as ie
 
 OPT_SIM_DURATION_S = 35.0
+# The search phase evaluates up to 128 combinations x 2 sims each (baseline +
+# candidate) — at the real-playback 130s physics floor that's up to 256 full
+# microsimulations per optimizer call (measured ~16s on a 7-intervention
+# road). None of these intermediate runs are played back or scrubbed by the
+# user (only the eventually-CHOSEN combo gets a real, full-duration re-sim
+# via /interventions/simulate when actually applied), so the search itself
+# uses a shorter horizon and skips frame generation entirely — real
+# simulation output either way, just tuned for search throughput rather than
+# playback fidelity. Applying a combo afterward always re-scores it at full
+# duration, so the number the user acts on is never the shortened one.
+OPT_SIM_MIN_DURATION_S = 55.0
 
 
 def _powerset(ids: List[str]):
@@ -22,7 +33,8 @@ def _powerset(ids: List[str]):
 def optimize(geometry: RoadGeometry, features: RoadFeatures, objective: str,
              budget_cap: float | None = None) -> OptimizeResult:
     baseline_risk = risk_engine.evaluate(features).score_0_100
-    baseline_sim = traffic_sim.run_simulation(geometry, features, duration_s=OPT_SIM_DURATION_S)
+    baseline_sim = traffic_sim.run_simulation(geometry, features, duration_s=OPT_SIM_DURATION_S,
+                                               min_duration_s=OPT_SIM_MIN_DURATION_S, include_frames=False)
     baseline_delay = baseline_sim.metrics.avg_delay_s
     baseline_conflicts = baseline_sim.metrics.conflict_count
 
@@ -40,6 +52,7 @@ def optimize(geometry: RoadGeometry, features: RoadFeatures, objective: str,
         sim_after = traffic_sim.run_simulation(
             geometry, new_features, duration_s=OPT_SIM_DURATION_S,
             speed_scale=sim_overrides["speed_scale"], add_signal=sim_overrides["add_signal"],
+            min_duration_s=OPT_SIM_MIN_DURATION_S, include_frames=False,
         )
         delay_after = sim_after.metrics.avg_delay_s
         conflicts_after = sim_after.metrics.conflict_count

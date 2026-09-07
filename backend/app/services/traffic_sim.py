@@ -216,7 +216,16 @@ WET_COMFORT_DECEL_MULT = 0.75  # a comfortable stop takes longer on a wet road
 
 def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: float = 300.0,
                     speed_scale: float = 1.0, add_signal: bool = False, is_wet: bool = False,
-                    seed: int = 7) -> SimResult:
+                    seed: int = 7, min_duration_s: float = 130.0, include_frames: bool = True) -> SimResult:
+    """min_duration_s / include_frames exist for callers that only read
+    `.metrics` (the optimizer's brute-force search, /interventions/simulate's
+    before/after) — they never touch `.frames`, so building SimFrame/
+    VehicleFrame objects for them is pure waste, and they can use a shorter
+    physics horizon than the real-playback default without changing what's
+    actually being compared (both sides of a before/after run the same
+    horizon, so the comparison stays fair either way). /simulation/run (the
+    actual 3D scene playback) keeps the full 130s floor and frames — this
+    never shortens what the user visually sees or scrubs through."""
     rng = random.Random(seed)
     xy = [(p[0], p[1]) for p in geometry.local_xy]
     lookup, total_len, cum = _build_path_lookup(xy)
@@ -247,7 +256,7 @@ def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: f
     # structurally zero) — and so before/after comparisons share the same time budget
     # regardless of how an intervention changed free-flow time.
     playback_duration = duration_s
-    sim_duration = max(duration_s, 130.0)
+    sim_duration = max(duration_s, min_duration_s)
 
     half_width = max(2, features.lanes) * (LANE_WIDTH_M / 2)
 
@@ -433,7 +442,7 @@ def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: f
             if ped.s > total_len or ped.s < 0.0:
                 ped.finished_t = t
 
-        if _step % 2 == 0 and t <= playback_duration:
+        if include_frames and _step % 2 == 0 and t <= playback_duration:
             vf = []
             for lane_idx in range(lanes):
                 for veh in lanes_vehicles[lane_idx]:

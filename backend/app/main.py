@@ -109,14 +109,21 @@ def interventions_simulate(body: InterventionSimulateRequest):
     if not road:
         raise HTTPException(404, f"Road '{body.road_id}' not found")
 
+    # include_frames=False: this endpoint only ever reads .metrics — the actual
+    # playback frames the 3D scene animates come from the separate
+    # /simulation/run call the frontend fires right after (see store.ts's
+    # applyStaged) — building SimFrame/VehicleFrame objects here would be pure
+    # waste, never rendered.
     before_risk = road.risk
-    before_sim = traffic_sim.run_simulation(road.geometry, road.features, duration_s=45.0).metrics
+    before_sim = traffic_sim.run_simulation(road.geometry, road.features, duration_s=45.0,
+                                             include_frames=False).metrics
 
     new_features, overrides, twin_changes = ie.apply_interventions(road.features, body.intervention_ids)
     after_risk = risk_engine.evaluate(new_features)
     after_sim = traffic_sim.run_simulation(road.geometry, new_features, duration_s=45.0,
                                             speed_scale=overrides["speed_scale"],
-                                            add_signal=overrides["add_signal"]).metrics
+                                            add_signal=overrides["add_signal"],
+                                            include_frames=False).metrics
 
     applied = [o for o in ie.get_catalog(road.features) if o.id in body.intervention_ids]
     return InterventionSimulateResult(
