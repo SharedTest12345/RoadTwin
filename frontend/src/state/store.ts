@@ -78,6 +78,7 @@ interface RoadTwinState {
   cameraPreset: CameraPreset;
   cameraPresetTrigger: number;
   reportOpen: boolean;
+  audioMuted: boolean;
 
   scanRandomRoad: () => Promise<Road | null>;
   scanNewRoad: () => Promise<Road | null>;
@@ -92,6 +93,7 @@ interface RoadTwinState {
   setPanel: (p: TwinPanel) => void;
   setWeatherPreset: (w: WeatherPreset) => void;
   setCameraPreset: (c: CameraPreset) => void;
+  toggleAudioMuted: () => void;
   setReportOpen: (open: boolean) => void;
   tickSim: (dt: number) => void;
   setSimPlaying: (p: boolean) => void;
@@ -99,10 +101,10 @@ interface RoadTwinState {
   scrubSim: (t: number) => void;
 }
 
-async function fetchBaselineSim(roadId: string, set: (partial: Partial<RoadTwinState>) => void) {
+async function fetchBaselineSim(roadId: string, set: (partial: Partial<RoadTwinState>) => void, isWet = false) {
   set({ simLoading: true });
   try {
-    const sim = await api.runSimulation(roadId, 300, []);
+    const sim = await api.runSimulation(roadId, 300, [], isWet);
     set({ sim, simLoading: false, simTime: 0, simPlaying: true });
   } catch {
     set({ simLoading: false });
@@ -144,6 +146,7 @@ export const useStore = create<RoadTwinState>((set, get) => ({
   cameraPreset: "overview",
   cameraPresetTrigger: 0,
   reportOpen: false,
+  audioMuted: false,
 
   scanRandomRoad: async () => {
     if (get().scanning) return null; // guards against StrictMode double-invoke / rapid double-clicks racing
@@ -236,7 +239,7 @@ export const useStore = create<RoadTwinState>((set, get) => ({
     try {
       const result = await api.simulateInterventions(road.id, staged);
       set({ interventionResult: result, twinOverrides: result.twin_changes, applyingIntervention: false, panel: "compare" });
-      const sim = await api.runSimulation(road.id, 300, staged);
+      const sim = await api.runSimulation(road.id, 300, staged, get().weatherPreset === "rain");
       set({ sim, simTime: 0, simPlaying: true });
     } catch {
       set({ applyingIntervention: false });
@@ -246,7 +249,7 @@ export const useStore = create<RoadTwinState>((set, get) => ({
   resetInterventions: async () => {
     const road = get().road;
     set({ stagedIds: [], interventionResult: null, twinOverrides: {}, optimizeResult: null });
-    if (road) fetchBaselineSim(road.id, set);
+    if (road) fetchBaselineSim(road.id, set, get().weatherPreset === "rain");
   },
 
   runOptimize: async (objective: Objective) => {
@@ -279,9 +282,32 @@ export const useStore = create<RoadTwinState>((set, get) => ({
   },
 
   setPanel: (p) => set({ panel: p }),
-  setWeatherPreset: (w) => set({ weatherPreset: w }),
+  setWeatherPreset: (w) => {
+    const wasWet = get().weatherPreset === "rain";
+    const willBeWet = w === "rain";
+    set({ weatherPreset: w });
+    // Wet pavement actually changes the physics (traffic_sim.py's is_wet) —
+    // re-run the sim so speeds/gaps reflect it instead of the weather preset
+    // being a purely visual toggle. Only when wetness itself flips (not
+    // every preset change — night/fog/clear_day are all "dry"). Re-runs with
+    // whatever interventions are CURRENTLY applied (stagedIds), not always
+    // the bare baseline — otherwise toggling weather while an intervention
+    // is active would silently drop it from the sim while the UI still
+    // showed it as applied.
+    if (wasWet !== willBeWet) {
+      const road = get().road;
+      const staged = get().stagedIds;
+      if (road) {
+        set({ simLoading: true });
+        api.runSimulation(road.id, 300, staged, willBeWet)
+          .then((sim) => set({ sim, simLoading: false, simTime: 0, simPlaying: true }))
+          .catch(() => set({ simLoading: false }));
+      }
+    }
+  },
   setCameraPreset: (c) => set((s) => ({ cameraPreset: c, cameraPresetTrigger: s.cameraPresetTrigger + 1 })),
   setReportOpen: (open) => set({ reportOpen: open }),
+  toggleAudioMuted: () => set((s) => ({ audioMuted: !s.audioMuted })),
 
   tickSim: (dt: number) => {
     const { sim, simPlaying, simTime, simSpeed } = get();

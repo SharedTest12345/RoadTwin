@@ -91,12 +91,12 @@ export function ComparePanel() {
       <div className="h-44 -ml-3">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1c2537" vertical={false} />
-            <XAxis dataKey="metric" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={{ stroke: "#2a3548" }} tickLine={false} />
-            <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
-            <Tooltip contentStyle={{ background: "#0c121e", border: "1px solid #2a3548", borderRadius: 6, fontSize: 11 }} />
-            <Bar dataKey="Before" fill="#475569" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="After" fill="#00f0ff" radius={[3, 3, 0, 0]} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#262723" vertical={false} />
+            <XAxis dataKey="metric" tick={{ fill: "#8f9089", fontSize: 10 }} axisLine={{ stroke: "#3f403f" }} tickLine={false} />
+            <YAxis tick={{ fill: "#8f9089", fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
+            <Tooltip contentStyle={{ background: "#141513", border: "1px solid #3f403f", borderRadius: 6, fontSize: 11 }} />
+            <Bar dataKey="Before" fill="#5c5d59" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="After" fill="#f2f2ef" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

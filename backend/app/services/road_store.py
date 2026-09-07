@@ -5,6 +5,7 @@ scans persist to road_db (SQLite) so the "roads RoadTwin has scanned" catalog
 survives a backend restart; `_cache` remains a fast in-process lookup on top
 of that for the current process's lifetime."""
 import logging
+import random
 from typing import Dict, List, Optional
 
 from ..models.schemas import Road, RoadTags, NearbyContext, LatLng
@@ -63,45 +64,70 @@ def _already_known(road_id: str) -> bool:
     return road_id in _cache or road_db.get_road(road_id) is not None
 
 
-def _fetch_live_candidate() -> Optional[RawRoad]:
+def _fetch_live_candidates() -> List[RawRoad]:
+    """OSM (Overpass) first — the common case (it finds something genuinely
+    new) stays a single network request, same cost as before. OSRM is only
+    ALSO tried when OSM came back empty or landed on an already-known
+    duplicate — that's the specific case the old code handled badly (it
+    would just accept the duplicate rather than widening the search), not a
+    reason to pay for a second request on every attempt regardless of
+    whether OSM already succeeded. Overpass and OSRM are independent
+    services (different operators, different failure modes) with their own
+    separate candidate pools, so this second try has a real chance of
+    finding something OSM's (possibly increasingly-saturated) region pool
+    didn't have."""
+    out: List[RawRoad] = []
     try:
         raw = _osm.get_random_road()
         if raw:
-            return raw
+            out.append(raw)
     except Exception as exc:
         log.warning("live OSM random road failed: %s", exc)
-    # Overpass and OSRM are independent services (different operators, different
-    # failure modes) — Overpass being down/rate-limited doesn't mean the wider
-    # OSM ecosystem is unreachable, so this still returns a real, road-network-
-    # following route before giving up to demo data.
-    try:
-        return _osrm.get_random_road()
-    except Exception as exc:
-        log.warning("live OSRM random road failed, falling back to demo: %s", exc)
-        return None
+    if not out or _already_known(out[0]["osm_id"]):
+        try:
+            raw = _osrm.get_random_road()
+            if raw:
+                out.append(raw)
+        except Exception as exc:
+            log.warning("live OSRM random road failed: %s", exc)
+    return out
 
 
-# OSRM's candidate pool is a small fixed list of waypoint pairs (see its own
-# get_random_road) — a "scan random road" click can easily re-land on a route
-# already sitting in the catalog. Each attempt re-shuffles that pool
-# independently, so a handful of retries has a real chance of landing on a
-# still-unscanned one before accepting a repeat.
-MAX_UNIQUE_ATTEMPTS = 5
+# Both curated pools (OSM's REGIONS, OSRM's waypoint pairs) are small and
+# fixed, and shrink in practical terms every time this succeeds (that road is
+# now "already known") — a "scan random road" click can easily re-land on one
+# already sitting in the catalog. Each attempt re-shuffles/re-queries BOTH
+# pools independently (see _fetch_live_candidates), so a handful of retries
+# has a real chance of surfacing a still-unscanned one.
+MAX_UNIQUE_ATTEMPTS = 4
 
 
 def get_random_road(prefer_live: bool = True) -> Road:
     raw = None
     if prefer_live:
         for attempt in range(MAX_UNIQUE_ATTEMPTS):
-            candidate = _fetch_live_candidate()
-            if not candidate:
+            candidates = _fetch_live_candidates()
+            if not candidates:
                 break  # both live sources are down — no point retrying them
-            raw = candidate
-            if not _already_known(raw["osm_id"]):
+            fresh = [c for c in candidates if not _already_known(c["osm_id"])]
+            if fresh:
+                raw = random.choice(fresh)
                 break
-            log.info("scan attempt %d landed on already-known road %s, retrying", attempt + 1, raw["osm_id"])
-    if not raw:
-        raw = _demo.get_random_road()
+            # Keep the LAST round's candidate in hand only so there's still
+            # something to fall back to if every attempt below also fails to
+            # find anything new — never returned as-is while there's still a
+            # chance of finding something genuinely unscanned.
+            raw = candidates[0]
+            log.info("scan attempt %d found only already-known roads, retrying", attempt + 1)
+    if raw is None or _already_known(raw["osm_id"]):
+        # Retries exhausted without finding anything genuinely new. Returning
+        # that stale `raw` here would silently hand back a digital twin of a
+        # road already in the database — not what "scan a NEW road" promised
+        # — so fall back to demo data instead, which is always a real,
+        # distinct road even though it isn't live OSM.
+        demo = _demo.get_random_road()
+        if demo:
+            raw = demo
     return _build_road(raw)
 
 

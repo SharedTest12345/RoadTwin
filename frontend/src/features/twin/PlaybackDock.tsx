@@ -30,13 +30,13 @@ export function PlaybackDock() {
     // the canvas container, not the whole screen, so it's centered on the
     // viewport and never overlaps the sidebar) rather than a full-width strip.
     <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-5
-                     backdrop-blur-md bg-black/75 border border-white/10 rounded-2xl
-                     shadow-2xl shadow-black/50 px-6 py-3.5 text-xs">
+                     bg-ink-850 border border-ink-600/70 rounded-2xl
+                     shadow-panel px-6 py-3.5 text-xs">
       <button
         onClick={() => setSimPlaying(!simPlaying)}
         className={`w-8 h-8 flex items-center justify-center rounded-full border shrink-0 transition-all ${
           simPlaying
-            ? "bg-brand/20 border-brand/60 text-brand shadow-[0_0_12px_rgba(226,166,61,0.45)]"
+            ? "bg-brand/20 border-brand/60 text-brand"
             : "bg-white/5 border-white/15 text-ink-200 hover:bg-white/10"
         }`}
       >
@@ -85,7 +85,7 @@ function DockButton({ active, onClick, icon, label }: { active: boolean; onClick
       onClick={onClick}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
         active
-          ? "bg-brand/20 border border-brand/50 text-brand shadow-[0_0_10px_rgba(226,166,61,0.3)]"
+          ? "bg-brand/20 border border-brand/50 text-brand"
           : "border border-transparent text-ink-400 hover:text-ink-100 hover:bg-white/5"
       }`}
     >

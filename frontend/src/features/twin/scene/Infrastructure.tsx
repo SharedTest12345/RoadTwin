@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
 import { Html, useGLTF, Clone } from "@react-three/drei";
 import * as THREE from "three";
 import type { Road, SimResult } from "../../../types";
@@ -9,6 +8,7 @@ import { shoulderDrop } from "../../../three/terrainHeight";
 import { STREETLIGHT_MODEL, WARNING_SIGN_MODEL, STOP_SIGN_MODEL, CONE_MODEL } from "../../../three/propModels";
 import { speedBumpTexture } from "../../../three/textures";
 import { useStore } from "../../../state/store";
+import { TrafficSignalHead } from "./TrafficSignalHead";
 
 interface Props {
   road: Road;
@@ -69,21 +69,6 @@ const CROSSING_EXCLUSION_M = 8;
 // be) and to skip speed bumps that would otherwise land mid-turn.
 const STRAIGHT_WINDOW_M = 15;
 const STRAIGHT_THRESHOLD_RAD = (6 * Math.PI) / 180;
-// Real crash-barrier-style traffic signal cycle: matches traffic_sim.py's
-// `cycle = 30.0` / `phase > 18.0` exactly — see the sync note on the signal
-// useFrame below for why this has to match bit-for-bit.
-const SIGNAL_CYCLE_S = 30;
-const SIGNAL_GREEN_S = 18;
-// Purely a DISPLAY anticipation — the light shows red/green starting this
-// many seconds before the real (backend-matching) transition, like a real
-// signal giving drivers a heads-up. Only the color changes early: the
-// physics that actually stops vehicles (traffic_sim.py's signal_red()) is
-// untouched and still flips at the exact SIGNAL_GREEN_S / SIGNAL_CYCLE_S
-// boundaries, so a car can legally still be moving through on green while
-// the light already reads red, or still be held by a "logically red" signal
-// that's already showing green.
-const SIGNAL_RED_PREVIEW_S = 3;
-const SIGNAL_GREEN_PREVIEW_S = 3;
 // A pedestrian crossing gets its own signal, planted just before the
 // crossing's near edge (a real stop line) — matches traffic_sim.py's
 // CROSSING_LENGTH_M/CROSSING_SIGNAL_SETBACK_M exactly, so the backend
@@ -273,14 +258,17 @@ export function Infrastructure({ road, sim, guardrailActive, lightingActive, sid
   // straight-nudged fractional positions elsewhere on the road.
   const signalPositions = useMemo(() => {
     if (roadCurveLength < 1e-6 || points.length < 2) return [];
-    const out: { pos: THREE.Vector3; s: number }[] = [];
+    const out: { pos: THREE.Vector3; s: number; rotY: number }[] = [];
     const edgeDist = halfWidth + EDGE_LINE_OFFSET_M + LAMP_EDGE_DEVIATION_M;
 
     const place = (sCurve: number) => {
       const cp = sampleRoadCurveAt(roadCurve, roadCurveLength, sCurve);
       const y = cp.point.y - shoulderDrop(2.5);
       const pos = new THREE.Vector3(cp.point.x, y, cp.point.z).addScaledVector(cp.binormal, edgeDist);
-      out.push({ pos, s: sCurve });
+      // Same -heading convention every other directional roadside prop in
+      // this file uses (stop signs, guard posts) — faces the housing back
+      // across the carriageway toward approaching traffic.
+      out.push({ pos, s: sCurve, rotY: -cp.heading });
     };
 
     let crossingSignalS: number | null = null;
@@ -372,27 +360,6 @@ export function Infrastructure({ road, sim, guardrailActive, lightingActive, sid
     [points, guardrailActive]
   );
 
-  // Was driven by clock.elapsedTime (real wall-clock time since the canvas
-  // mounted) — completely decoupled from traffic_sim.py's own signal_red(),
-  // which gates on simTime + that signal's own arc-length position. Vehicles
-  // stop for the BACKEND's red phase; the light showing a DIFFERENT color at
-  // that moment is what read as "nobody follows the traffic light." Reading
-  // simTime via getState() (not a reactive useStore subscription) avoids
-  // re-rendering this whole component every frame just to recolor a sphere.
-  const signalLampRefs = useRef<(THREE.Mesh | null)[]>([]);
-  useFrame(() => {
-    const simTime = useStore.getState().simTime;
-    signalPositions.forEach((sp, i) => {
-      const mesh = signalLampRefs.current[i];
-      if (!mesh) return;
-      const phase = (simTime + sp.s) % SIGNAL_CYCLE_S;
-      const red = phase > SIGNAL_GREEN_S - SIGNAL_RED_PREVIEW_S && phase < SIGNAL_CYCLE_S - SIGNAL_GREEN_PREVIEW_S;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      mat.color.set(red ? "#ef4444" : "#22c55e");
-      mat.emissive.set(red ? "#ef4444" : "#22c55e");
-    });
-  });
-
   const [hoveredHazard, setHoveredHazard] = useState<number | null>(null);
 
   return (
@@ -426,15 +393,19 @@ export function Infrastructure({ road, sim, guardrailActive, lightingActive, sid
       ))}
 
       {signalPositions.map((sp, i) => (
-        <group key={i} position={sp.pos}>
-          <mesh position={[0, 2.2, 0]}>
-            <cylinderGeometry args={[0.1, 0.1, 4.4, 6]} />
+        <group key={i} position={sp.pos} rotation={[0, sp.rotY, 0]}>
+          <mesh position={[0, 2.3, 0]} castShadow>
+            <cylinderGeometry args={[0.1, 0.1, 4.6, 6]} />
             <meshStandardMaterial color="#33383f" />
           </mesh>
-          <mesh position={[0, 4.3, 0.3]} ref={(el) => (signalLampRefs.current[i] = el)}>
-            <sphereGeometry args={[0.28, 10, 10]} />
-            <meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={2} toneMapped={false} />
-          </mesh>
+          <group position={[0, 4.6, 0.35]}>
+            {/* Reads simTime via getState() (not a reactive useStore
+                subscription) inside TrafficSignalHead's own useFrame, so
+                this doesn't re-render the whole component tree every frame
+                just to recolor a lamp — same reasoning the old single-bulb
+                version used, now per-signal instead of one shared loop. */}
+            <TrafficSignalHead getPhase={() => useStore.getState().simTime + sp.s} />
+          </group>
         </group>
       ))}
 

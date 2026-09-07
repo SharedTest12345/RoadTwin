@@ -10,6 +10,7 @@ signals + crossings + schools/hospitals + water + guardrails, all in one bbox), 
 filters context to each candidate road locally in Python — no second network call."""
 import logging
 import random
+import time
 from typing import List, Optional, Tuple
 
 import requests
@@ -51,9 +52,24 @@ _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
 
 
+# A single "scan random road" call can fire off several Overpass queries in
+# quick succession (osm_provider's own region retries, osrm_provider's
+# building/side-road enrichment on top of THAT) — once one of them has
+# actually timed out proving the host is unreachable, the rest of that same
+# burst have nothing new to learn from paying the same ~3s connect timeout
+# again. This is what made "scan a new road" (retrying several times to
+# avoid a duplicate) take tens of seconds end to end even though every
+# individual call was already failing fast on its own.
+_overpass_down_until = 0.0
+_OVERPASS_DOWN_COOLDOWN_S = 20.0
+
+
 def _overpass(query: str) -> Optional[dict]:
     if not config.USE_LIVE_OSM:
         return None
+    global _overpass_down_until
+    if time.time() < _overpass_down_until:
+        raise HostUnreachable("Overpass recently detected unreachable (cooldown)")
     try:
         # Fail the TCP handshake fast (host down/unreachable); allow more time for
         # the server to actually compute and return a response once connected.
@@ -63,6 +79,7 @@ def _overpass(query: str) -> Optional[dict]:
         return resp.json()
     except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
         log.warning("Overpass host unreachable: %s", exc)
+        _overpass_down_until = time.time() + _OVERPASS_DOWN_COOLDOWN_S
         raise HostUnreachable(str(exc)) from exc
     except Exception as exc:
         log.warning("Overpass query failed: %s", exc)

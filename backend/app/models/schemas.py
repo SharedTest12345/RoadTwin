@@ -223,6 +223,10 @@ class SimulationRunRequest(BaseModel):
     road_id: str
     duration_s: float = 300.0
     intervention_ids: List[str] = Field(default_factory=list)
+    # Mirrors the frontend's "rain" weather preset — wet pavement means lower
+    # grip, so the physics actually sheds speed and opens up following gaps
+    # instead of the weather preset being a purely visual toggle.
+    is_wet: bool = False
 
 
 class InterventionSimulateRequest(BaseModel):

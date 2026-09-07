@@ -4,41 +4,54 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Deep cyber-infrastructure ink scale — near-black core with a cool
-        // blue-black cast (not neutral graphite). Every panel/card/overlay
-        // is built from this one scale so contrast steps stay consistent.
+        // Neutral charcoal ink scale (GIS/engineering-tool palette, not the
+        // old cool blue-black cyber cast) — true near-black core with a
+        // warm-neutral graphite cast, calibrated to the reference design's
+        // own panel bg (#141513, ink-850) and hairline border (#3f403f,
+        // ink-600). Every panel/card/overlay is built from this one scale
+        // so contrast steps stay consistent.
         ink: {
-          950: "#06090e",
-          900: "#0a0e17",
-          850: "#0c121e",
-          800: "#121a2b",
-          700: "#1c2537",
-          600: "#2a3548",
-          500: "#475569",
-          400: "#64748b",
-          300: "#94a3b8",
-          200: "#cbd5e1",
-          100: "#e2e8f0",
-          50: "#f1f5f9",
+          950: "#000000",
+          900: "#0a0a09",
+          850: "#141513",
+          800: "#1c1d1a",
+          700: "#262723",
+          600: "#3f403f",
+          500: "#5c5d59",
+          400: "#8f9089",
+          300: "#b0b1a9",
+          200: "#d1d2cb",
+          100: "#e9e9e4",
+          50: "#f6f6f3",
         },
-        // Signature brand accent — glowing telemetry cyan, the primary HUD
-        // color for nav/CTAs/active states. Risk severity keeps its own
-        // separate scale below so the two systems never collide.
+        // Restrained neutral accent (soft off-white) — the reference design
+        // has no separate hue-based "brand color" anywhere; primary CTAs are
+        // plain light-filled pills with dark text, and "active" states are a
+        // lighter neutral, not a glowing color. Keeping this as a semantic
+        // token (rather than inlining ink-50/white at every call site) is
+        // what makes `bg-brand text-ink-950` still read as "the app's own
+        // primary action style," not require touching each of its ~15 call
+        // sites individually.
         brand: {
-          DEFAULT: "#00f0ff",
-          bright: "#5ef8ff",
-          dim: "#0070f3",
-          ink: "#00232a",
+          DEFAULT: "#f2f2ef",
+          bright: "#ffffff",
+          dim: "#b5b6ae",
+          ink: "#141513",
         },
+        // Muted/desaturated risk severity colors, matched to the reference
+        // design exactly (its own "Standardize/Lighten risk colors" pass) —
+        // NOT the same hue family as `brand` above, so risk color never
+        // doubles as a general "this is active/selected" UI signal (the
+        // reference design explicitly keeps these meanings separate).
         risk: {
-          critical: "#ff3366",
-          high: "#ff6a3d",
-          moderate: "#ffb300",
-          low: "#00e676",
+          critical: "#c2453d",
+          high: "#d9822b",
+          moderate: "#d4a72c",
+          low: "#3a9b72",
         },
       },
       fontFamily: {
-        sans: ["'Plus Jakarta Sans'", "system-ui", "sans-serif"],
+        sans: ["'IBM Plex Sans'", "system-ui", "sans-serif"],
         mono: ["'JetBrains Mono'", "'Consolas'", "monospace"],
       },
       // Coherent type scale — every surface draws from this instead of
@@ -58,8 +71,10 @@ export default {
         "metric-lg": ["2.75rem", { lineHeight: "2.85rem", letterSpacing: "-0.02em" }],
       },
       boxShadow: {
-        panel: "0 12px 40px -12px rgba(0,0,0,0.55)",
-        glow: "0 0 24px -4px rgba(226,166,61,0.35)",
+        // Matches the reference design's own "Enhanced Drop Shadows" pass
+        // exactly — deep ambient shadow so floating panels read as sitting
+        // above the map, not a colored/glow shadow.
+        panel: "0 12px 32px rgba(0,0,0,0.85)",
       },
     },
   },

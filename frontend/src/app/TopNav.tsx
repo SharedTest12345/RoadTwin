@@ -3,11 +3,10 @@ import { useStore } from "../state/store";
 import { Shuffle, Map, Boxes, PlayCircle, Loader2, Home as HomeIcon } from "lucide-react";
 
 const NAV_TAB_BASE = "flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all";
-const NAV_TAB_ACTIVE = "text-brand border";
+const NAV_TAB_ACTIVE = "text-white border";
 const NAV_TAB_ACTIVE_STYLE = {
-  background: "linear-gradient(135deg, rgba(0,240,255,0.2) 0%, rgba(0,112,243,0.25) 100%)",
-  borderColor: "rgba(0,240,255,0.4)",
-  boxShadow: "0 0 12px rgba(0,240,255,0.2)",
+  background: "#232420",
+  borderColor: "#3f403f",
 };
 const NAV_TAB_INACTIVE = "text-ink-300 border border-transparent hover:text-white hover:bg-white/5";
 
@@ -39,19 +38,16 @@ export function TopNav() {
 
   return (
     <div
-      className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-white/[0.08] z-20"
-      style={{ background: "rgba(12,18,30,0.78)", backdropFilter: "blur(16px)", boxShadow: "0 4px 20px rgba(0,0,0,0.35)" }}
+      className="h-16 shrink-0 flex items-center justify-between px-6 border-b border-ink-600/60 z-20"
+      style={{ background: "#000000" }}
     >
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-3 select-none">
-          <div
-            className="w-9 h-9 rounded-[10px] flex items-center justify-center text-ink-950 pulse-border-glow"
-            style={{ background: "linear-gradient(135deg, #00f0ff 0%, #0070f3 100%)" }}
-          >
+          <div className="w-9 h-9 rounded-[10px] flex items-center justify-center text-white bg-ink-800 border border-ink-600">
             <Boxes size={18} />
           </div>
-          <h1 className="font-display text-xl">
-            <span className="text-glow-gradient">ROADTWIN</span>
+          <h1 className="font-display text-xl text-white">
+            ROADTWIN
           </h1>
         </div>
 
@@ -92,8 +88,7 @@ export function TopNav() {
         <button
           onClick={scanNew}
           disabled={scanning}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-ink-950 text-xs font-bold transition-all disabled:opacity-60"
-          style={{ background: "linear-gradient(135deg, #00f0ff 0%, #0070f3 100%)", boxShadow: "0 0 16px rgba(0,240,255,0.35)" }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-xs font-bold transition-all disabled:opacity-60 bg-ink-800 border border-ink-600 hover:bg-ink-700"
         >
           {scanning ? <Loader2 size={14} className="animate-spin" /> : <Shuffle size={14} />}
           Scan Random Road

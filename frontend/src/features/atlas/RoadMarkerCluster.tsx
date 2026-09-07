@@ -28,7 +28,7 @@ function roadIcon(color: string, selected: boolean): L.DivIcon {
     className: "",
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #06090e;box-shadow:0 0 0 1px ${color}66;"></div>`,
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #000000;box-shadow:0 0 0 1px ${color}66;"></div>`,
   });
 }
 
@@ -46,9 +46,9 @@ function clusterIcon(cluster: L.MarkerCluster): L.DivIcon {
     className: "",
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};color:#06090e;
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};color:#000000;
                 display:flex;align-items:center;justify-content:center;font:700 12px 'JetBrains Mono',monospace;
-                border:2px solid #06090e;box-shadow:0 0 0 1px ${color}66;">${count}</div>`,
+                border:2px solid #000000;box-shadow:0 0 0 1px ${color}66;">${count}</div>`,
   });
 }
 

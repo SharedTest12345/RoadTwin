@@ -19,7 +19,8 @@ import requests
 
 from .. import config
 from .base import RoadDataProvider, RawRoad
-from .osm_provider import HIGHWAY_CLASSES
+from . import osm_provider
+from .osm_provider import HIGHWAY_CLASSES, HostUnreachable
 from ..services.geometry import polyline_length_m, haversine_m
 
 log = logging.getLogger("roadtwin.osrm")
@@ -39,20 +40,27 @@ log = logging.getLogger("roadtwin.osrm")
 # the real route's true dimensions on the map instead of a rendering workaround.
 MAX_ROUTE_LENGTH_M = 2000.0
 
-# Same curated real-world areas OSMProvider uses for "random road" discovery (see
-# osm_provider.REGIONS) — two waypoints placed inside each bbox, ~1-1.5km apart,
-# for OSRM to route a real driving path between. Multiple pairs per region for
-# variety across repeated "random road" calls.
-_WAYPOINT_PAIRS: List[Tuple[str, Tuple[float, float], Tuple[float, float]]] = [
-    ("San Francisco, California, USA", (37.774, -122.419), (37.784, -122.409)),
-    ("San Francisco, California, USA", (37.765, -122.435), (37.775, -122.422)),
-    ("Golden, Colorado, USA", (39.739, -105.227), (39.729, -105.217)),
-    ("Golden, Colorado, USA", (39.735, -105.238), (39.745, -105.223)),
-    ("Manhattan, New York, USA", (40.758, -73.986), (40.768, -73.976)),
-    ("Chicago Loop, Illinois, USA", (41.878, -87.630), (41.888, -87.620)),
-    ("Seattle, Washington, USA", (47.606, -122.332), (47.616, -122.322)),
-    ("Big Sur, California, USA", (36.270, -121.808), (36.260, -121.798)),
-]
+# Same curated real-world areas OSMProvider uses for "random road" discovery
+# (osm_provider.REGIONS). Waypoints are jittered randomly inside whichever
+# bbox is picked, NOT read from a fixed list of pairs — a fixed list of N
+# pairs caps "random road" at N possible roads ever, since each pair routes
+# the identical polyline every time. (This is exactly what happened: a prior
+# fixed pool of 8 pairs got fully scanned, and road_store correctly refused to
+# re-offer any of them as "new" — so scanning silently hit a hard ceiling.)
+# Random points inside a ~3-4km bbox give effectively unlimited distinct
+# routes instead.
+MIN_WAYPOINT_SEPARATION_M = 300.0
+
+
+def _random_waypoint_pair(bbox: Tuple[float, float, float, float]) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+    min_lat, min_lon, max_lat, max_lon = bbox
+    a = (random.uniform(min_lat, max_lat), random.uniform(min_lon, max_lon))
+    b = (random.uniform(min_lat, max_lat), random.uniform(min_lon, max_lon))
+    for _ in range(5):
+        if haversine_m(a[0], a[1], b[0], b[1]) >= MIN_WAYPOINT_SEPARATION_M:
+            break
+        b = (random.uniform(min_lat, max_lat), random.uniform(min_lon, max_lon))
+    return a, b
 
 _session = requests.Session()
 _session.mount("https://", requests.adapters.HTTPAdapter(max_retries=0))
@@ -74,6 +82,15 @@ def _route(a: Tuple[float, float], b: Tuple[float, float]) -> Optional[dict]:
         if data.get("code") != "Ok" or not data.get("routes"):
             return None
         return data
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
+        # Same distinction osm_provider.py's _overpass() makes: the OSRM host
+        # itself being unreachable means retrying the OTHER waypoint pairs in
+        # the same call is pointless (same dead host) — reusing its
+        # HostUnreachable lets get_random_road()/list_roads() below break out
+        # of their own retry loops immediately instead of paying a full
+        # connect timeout per remaining pair.
+        log.warning("OSRM host unreachable: %s", exc)
+        raise HostUnreachable(str(exc)) from exc
     except Exception as exc:
         log.warning("OSRM route request failed: %s", exc)
         return None
@@ -125,6 +142,11 @@ def _fetch_context_near_route(points: List[Tuple[float, float]]) -> Tuple[List[L
     One combined query (not two) for the same reason osm_provider.py's own
     _combined_query is one call, not several. Best-effort and silent on any
     failure — this is all decoration; the route itself must never depend on it.
+    Routed through osm_provider._overpass() (not a second bespoke POST here)
+    so this also gets its shared "Overpass just proved unreachable" cooldown
+    for free — without it, a road_store retry burst that already gave up on
+    OSM's own Overpass call would still pay a full fresh connect timeout HERE
+    for every OSRM candidate it evaluates in the same burst.
     Returns (building_rings, way_polylines), both as raw (lat, lon) point lists."""
     if not config.USE_LIVE_OSM or len(points) < 2:
         return [], []
@@ -145,12 +167,11 @@ def _fetch_context_near_route(points: List[Tuple[float, float]]) -> Tuple[List[L
     out geom;
     """
     try:
-        resp = _session.post(config.OVERPASS_URL, data={"data": query},
-                              timeout=(min(3.0, config.OVERPASS_TIMEOUT_S), config.OVERPASS_TIMEOUT_S))
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        log.warning("Overpass context fetch failed (non-fatal, route unaffected): %s", exc)
+        data = osm_provider._overpass(query)
+    except HostUnreachable as exc:
+        log.warning("Overpass context fetch skipped (non-fatal, route unaffected): %s", exc)
+        return [], []
+    if not data:
         return [], []
     buildings: List[List[Tuple[float, float]]] = []
     ways: List[List[Tuple[float, float]]] = []
@@ -228,25 +249,27 @@ class OSRMProvider(RoadDataProvider):
     name = "osrm"
 
     def get_random_road(self) -> Optional[RawRoad]:
-        # Both waypoints are fixed per pair, so OSRM routes the identical
-        # polyline every time a given pair is used — the id has to be derived
-        # from the pair's own stable position in _WAYPOINT_PAIRS, never a
-        # random suffix, or re-scanning the same real route (a near-certainty
-        # across repeated "random" picks from only 8 pairs) mints a fresh id
-        # each time and looks like a distinct duplicate road in road_db/the
-        # Priority Map instead of updating the one real entry for it.
-        indices = list(range(len(_WAYPOINT_PAIRS)))
-        random.shuffle(indices)
-        for idx in indices[:3]:
-            region, a, b = _WAYPOINT_PAIRS[idx]
-            data = _route(a, b)
+        regions = list(osm_provider.REGIONS)
+        random.shuffle(regions)
+        for region, bbox in regions[:3]:
+            a, b = _random_waypoint_pair(bbox)
+            try:
+                data = _route(a, b)
+            except HostUnreachable:
+                break  # host is down — trying other regions against it won't help
             if not data:
                 continue
             coords = data["routes"][0]["geometry"]["coordinates"]
             length = polyline_length_m([(lat, lon) for lon, lat in coords])
             if length < 40:
                 continue
-            return _route_to_road(data, region, str(idx))
+            # Id derived from the actual waypoints queried, not a fixed slot —
+            # two random draws landing on the same coordinates again is
+            # effectively impossible, so this is naturally unique per real
+            # route while still resolving to the same road_db row in the rare
+            # case it ever did repeat exactly.
+            route_id = f"{a[0]:.4f}_{a[1]:.4f}-{b[0]:.4f}_{b[1]:.4f}"
+            return _route_to_road(data, region, route_id)
         return None
 
     def get_road(self, road_id: str) -> Optional[RawRoad]:
@@ -256,14 +279,19 @@ class OSRMProvider(RoadDataProvider):
         return None
 
     def list_roads(self) -> List[RawRoad]:
-        # Same stable per-pair id scheme as get_random_road — a route discovered
-        # through either method resolves to the same road_db row.
+        # Same id scheme as get_random_road — a route discovered through
+        # either method resolves to the same road_db row.
         out: List[RawRoad] = []
-        for idx, (region, a, b) in enumerate(_WAYPOINT_PAIRS[:4]):
-            data = _route(a, b)
+        for region, bbox in list(osm_provider.REGIONS)[:4]:
+            a, b = _random_waypoint_pair(bbox)
+            try:
+                data = _route(a, b)
+            except HostUnreachable:
+                break  # host is down — trying other regions against it won't help
             if not data:
                 continue
-            road = _route_to_road(data, region, str(idx))
+            route_id = f"{a[0]:.4f}_{a[1]:.4f}-{b[0]:.4f}_{b[1]:.4f}"
+            road = _route_to_road(data, region, route_id)
             if road:
                 out.append(road)
         return out

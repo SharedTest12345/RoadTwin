@@ -197,14 +197,26 @@ def _build_speed_profile(xy: List[Tuple[float, float]], cum: List[float]):
     return factor_at
 
 
-def _idm_accel(v, v0, gap, dv):
+def _idm_accel(v, v0, gap, dv, headway=T_HEADWAY, comfort_decel=B_COMF):
     gap = max(gap, 0.05)
-    s_star = S0 + max(0.0, v * T_HEADWAY + (v * dv) / (2 * math.sqrt(A_MAX * B_COMF)))
+    s_star = S0 + max(0.0, v * headway + (v * dv) / (2 * math.sqrt(A_MAX * comfort_decel)))
     return A_MAX * (1 - (v / max(v0, 0.1)) ** DELTA - (s_star / gap) ** 2)
 
 
+# Wet pavement: real tires lose grip, which shows up as a lower safe top
+# speed, a longer desired following gap (stopping distance grows with the
+# square of speed under reduced friction), and less confidence carried into
+# a bend on top of the normal curve-speed profile. None of this touches the
+# signal/TTC logic — it's the same IDM model with wet-adjusted inputs.
+WET_SPEED_MULT = 0.85
+WET_HEADWAY_MULT = 1.35
+WET_CURVE_MULT = 0.85
+WET_COMFORT_DECEL_MULT = 0.75  # a comfortable stop takes longer on a wet road
+
+
 def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: float = 300.0,
-                    speed_scale: float = 1.0, add_signal: bool = False, seed: int = 7) -> SimResult:
+                    speed_scale: float = 1.0, add_signal: bool = False, is_wet: bool = False,
+                    seed: int = 7) -> SimResult:
     rng = random.Random(seed)
     xy = [(p[0], p[1]) for p in geometry.local_xy]
     lookup, total_len, cum = _build_path_lookup(xy)
@@ -213,7 +225,11 @@ def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: f
     speed_factor_at = _build_speed_profile(xy, cum)
 
     lanes = max(1, min(2, features.lanes // (1 if features.lanes <= 2 else 2) or 1))
-    v0_base = max(5.0, features.speed_limit_kmh / 3.6 * speed_scale)
+    wet_speed_mult = WET_SPEED_MULT if is_wet else 1.0
+    v0_base = max(5.0, features.speed_limit_kmh / 3.6 * speed_scale * wet_speed_mult)
+    headway = T_HEADWAY * (WET_HEADWAY_MULT if is_wet else 1.0)
+    comfort_decel = B_COMF * (WET_COMFORT_DECEL_MULT if is_wet else 1.0)
+    curve_wet_mult = WET_CURVE_MULT if is_wet else 1.0
     spawn_interval = max(1.0, min(9.0, 3600.0 / max(features.estimated_volume_vph * 1.6, 60)))
 
     # Free-flow baseline integrates the curve-speed profile along the path (a vehicle
@@ -333,8 +349,8 @@ def run_simulation(geometry: RoadGeometry, features: RoadFeatures, duration_s: f
                             if g < lead_gap:
                                 lead_gap = g
                                 dv = veh.v
-                local_v0 = veh.v0 * min(1.0, speed_factor_at(veh.s) * veh.curve_mult)
-                accel = _idm_accel(veh.v, local_v0, lead_gap, dv)
+                local_v0 = veh.v0 * min(1.0, speed_factor_at(veh.s) * veh.curve_mult * curve_wet_mult)
+                accel = _idm_accel(veh.v, local_v0, lead_gap, dv, headway, comfort_decel)
                 veh.v = max(0.0, veh.v + accel * DT)
                 veh.s += veh.v * DT
                 if veh.s >= total_len and veh.finished_t is None:

@@ -134,7 +134,7 @@ export function AtlasPage() {
       </motion.div>
 
       <div className="absolute top-4 right-4 z-[1000] w-64">
-        <div className="flex items-center gap-2 bg-ink-900/90 backdrop-blur border border-ink-700 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2 bg-ink-850 border border-ink-600/70 rounded-lg px-3 py-2 shadow-panel">
           <Search size={14} className="text-ink-400 shrink-0" />
           <input
             value={query}
@@ -155,8 +155,8 @@ export function AtlasPage() {
                 className="chip border transition-colors"
                 style={
                   active
-                    ? { background: color ? `${color}26` : "rgba(0,240,255,0.15)", borderColor: color ? `${color}80` : "rgba(0,240,255,0.4)", color: color ?? "#00f0ff", boxShadow: color ? `0 0 12px ${color}33` : "0 0 12px rgba(0,240,255,0.2)" }
-                    : { background: "rgba(12,18,30,0.9)", borderColor: "#1c2537", color: "#94a3b8" }
+                    ? { background: color ? `${color}26` : "#262723", borderColor: color ? `${color}80` : "#3f403f", color: color ?? "#f6f6f3" }
+                    : { background: "#1c1d1a", borderColor: "#3f403f", color: "#8f9089" }
                 }
               >
                 {cat === "All" ? "All" : cat.charAt(0) + cat.slice(1).toLowerCase()}
@@ -167,13 +167,13 @@ export function AtlasPage() {
         </div>
 
         {roads.length > 0 && filtered.length === 0 && (
-          <div className="mt-2 text-xs text-ink-400 bg-ink-900/90 border border-ink-700 rounded px-2.5 py-1.5">
+          <div className="mt-2 text-xs text-ink-400 bg-ink-850 border border-ink-600/70 rounded px-2.5 py-1.5">
             No roads match the current filters.
           </div>
         )}
       </div>
 
-      <div className="absolute bottom-5 left-4 z-[1000] bg-ink-900/90 backdrop-blur border border-ink-700 rounded-lg px-3 py-2.5">
+      <div className="absolute bottom-5 left-4 z-[1000] bg-ink-850 border border-ink-600/70 rounded-lg px-3 py-2.5 shadow-panel">
         <div className="label-caption mb-1.5">Estimated risk</div>
         <div className="flex items-center gap-3">
           {LEGEND.map((l) => (

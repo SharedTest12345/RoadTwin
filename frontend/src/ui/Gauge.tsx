@@ -16,7 +16,7 @@ export function Gauge({ score, color, size = 132, strokeWidth = 11 }: Props) {
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#1c2537" strokeWidth={strokeWidth} />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#262723" strokeWidth={strokeWidth} />
         <circle
           cx={size / 2}
           cy={size / 2}

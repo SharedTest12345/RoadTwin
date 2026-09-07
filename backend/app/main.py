@@ -100,7 +100,7 @@ def simulation_run(body: SimulationRunRequest):
         features, overrides, _twin = ie.apply_interventions(road.features, body.intervention_ids)
         speed_scale, add_signal = overrides["speed_scale"], overrides["add_signal"]
     return traffic_sim.run_simulation(road.geometry, features, duration_s=body.duration_s,
-                                       speed_scale=speed_scale, add_signal=add_signal)
+                                       speed_scale=speed_scale, add_signal=add_signal, is_wet=body.is_wet)
 
 
 @app.post("/interventions/simulate", response_model=InterventionSimulateResult)

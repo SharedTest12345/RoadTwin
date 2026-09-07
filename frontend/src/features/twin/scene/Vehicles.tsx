@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useGLTF, Clone } from "@react-three/drei";
 import * as THREE from "three";
-import type { Road, SimResult, VehicleFrame } from "../../../types";
+import type { Road, SimResult } from "../../../types";
 import { buildRoadCurve, sampleRoadCurveAt } from "../../../three/geometryUtils";
+import { vehiclesAt } from "../../../lib/simFrames";
 import { CAR_MODELS } from "../../../three/vehicleModels";
 
 interface Props {
@@ -18,40 +19,6 @@ interface Props {
 const MODEL_SCALE = 1.65;
 const MODEL_ROT_OFFSET = 0;
 
-function findFrameBounds(sim: SimResult, t: number) {
-  const frames = sim.frames;
-  if (frames.length === 0) return null;
-  if (t <= frames[0].t) return { a: frames[0], b: frames[0], f: 0 };
-  if (t >= frames[frames.length - 1].t) return { a: frames[frames.length - 1], b: frames[frames.length - 1], f: 0 };
-  let lo = 0, hi = frames.length - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (frames[mid].t <= t) lo = mid; else hi = mid;
-  }
-  const a = frames[lo], b = frames[hi];
-  const f = (t - a.t) / Math.max(b.t - a.t, 1e-6);
-  return { a, b, f };
-}
-
-// `s` (arc length along the road) and `lane_offset_m` interpolate as plain
-// scalars — no wraparound to worry about the way raw heading degrees had, and
-// re-deriving position/heading fresh from the smooth curve at the interpolated
-// `s` (see below) means this no longer needs to reconstruct a heading at all.
-function interpolateVehicles(a: VehicleFrame[], b: VehicleFrame[], f: number): VehicleFrame[] {
-  const bMap = new Map(b.map((v) => [v.id, v]));
-  const out: VehicleFrame[] = [];
-  for (const va of a) {
-    const vb = bMap.get(va.id);
-    if (!vb) continue;
-    out.push({
-      id: va.id, lane: va.lane, braking: vb.braking, lane_offset_m: vb.lane_offset_m,
-      s: va.s + (vb.s - va.s) * f,
-      v_ms: va.v_ms + (vb.v_ms - va.v_ms) * f,
-    });
-  }
-  return out;
-}
-
 export function Vehicles({ road, sim, simTime }: Props) {
   // The SAME curve Road.tsx renders the asphalt from (and Infrastructure.tsx
   // already anchors guardrails/lamps to) — sampling this instead of buildPath's
@@ -62,12 +29,7 @@ export function Vehicles({ road, sim, simTime }: Props) {
   const { curve: roadCurve, length: roadCurveLength } = useMemo(() => buildRoadCurve(road), [road]);
   const gltfs = useGLTF(CAR_MODELS);
 
-  const vehicles = useMemo(() => {
-    if (!sim) return [];
-    const bounds = findFrameBounds(sim, simTime);
-    if (!bounds) return [];
-    return interpolateVehicles(bounds.a.vehicles, bounds.b.vehicles, bounds.f);
-  }, [sim, simTime]);
+  const vehicles = useMemo(() => vehiclesAt(sim, simTime), [sim, simTime]);
 
   const activeConflicts = useMemo(() => {
     if (!sim) return [];

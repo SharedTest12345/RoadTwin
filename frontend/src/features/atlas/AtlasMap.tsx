@@ -54,7 +54,7 @@ export function AtlasMap({ roads, selectedId, onSelect }: Props) {
       zoom={5}
       className="w-full h-full atlas-map-dark"
       zoomControl={false}
-      style={{ background: "#06090e" }}
+      style={{ background: "#000000" }}
     >
       {/* Plain OpenStreetMap tiles — the actual no-key-required-ever reference
           tile source, not a "free tier" that can start demanding a key later.

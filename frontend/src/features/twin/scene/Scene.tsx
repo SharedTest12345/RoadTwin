@@ -14,6 +14,7 @@ import { Vehicles } from "./Vehicles";
 import { Pedestrians } from "./Pedestrians";
 import { CameraRig } from "./CameraRig";
 import { WeatherEffects } from "./WeatherEffects";
+import { SoundManager } from "../SoundManager";
 
 // One sun vector shared by the visible <Sky> and the shadow-casting directional
 // light — if they drift apart, shadows fall away from where the sun visibly is.
@@ -101,7 +102,7 @@ function SceneContent() {
   return (
     <>
       <SimClock />
-      <CameraRig road={road} flyTrigger={flyTrigger} cameraPreset={cameraPreset} cameraPresetTrigger={cameraPresetTrigger} />
+      <CameraRig road={road} flyTrigger={flyTrigger} cameraPreset={cameraPreset} cameraPresetTrigger={cameraPresetTrigger} sim={sim} simTime={simTime} />
       <Terrain road={road} />
       <Road road={road} sidewalkActive={sidewalkActive} />
       <Scenery road={road} />
@@ -128,52 +129,57 @@ export function TwinScene() {
   const w = WEATHER[weatherPreset];
 
   return (
-    <Canvas
-      shadows="soft"
-      camera={{ fov: 45, near: 0.5, far: 4000, position: [0, 220, 260] }}
-      gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1, antialias: true }}
-    >
-      {/* Daylight scene: a real sky with a real sun is what makes it read as a
-          place rather than a hairline road floating in a void. Low
-          turbidity/rayleigh keeps the sky dome legibly blue at any camera
-          angle instead of clipping to white under ACES tonemapping. Night/
-          rain/fog skip the atmospheric-scattering <Sky> (it's inherently a
-          clear-sky-daylight model) for a flat overcast/dark color instead. */}
-      <color attach="background" args={[w.background]} />
-      {w.showSky && (
-        <Sky sunPosition={SUN_POSITION} turbidity={w.skyTurbidity} rayleigh={w.skyRayleigh} mieCoefficient={0.003} mieDirectionalG={0.8} />
-      )}
-      <fogExp2 attach="fog" args={[w.fogColor, w.fogDensity]} />
-      <hemisphereLight args={w.hemisphere} />
-      <ambientLight intensity={w.ambient} />
-      <directionalLight
-        position={SUN_POSITION}
-        intensity={w.sunIntensity}
-        color={w.sunColor}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-350}
-        shadow-camera-right={350}
-        shadow-camera-top={350}
-        shadow-camera-bottom={-350}
-        shadow-bias={-0.0003}
-        shadow-normalBias={0.02}
-      />
-      <Suspense fallback={null}>
-        <SceneContent />
-        {road && <WeatherEffects preset={weatherPreset} road={road} />}
-      </Suspense>
-      <EffectComposer multisampling={0}>
-        <SMAA />
-        {/* Tight, selective glow on genuinely bright emissive elements (lights,
-            signals, hazard markers, vehicle tail-lights) rather than a wide/
-            low-threshold bloom that washes color across the whole road
-            surface — this is what makes streetlights/brake-lights actually
-            read as light sources once the night preset darkens everything
-            else around them. */}
-        <Bloom luminanceThreshold={1.0} luminanceSmoothing={0.2} intensity={0.25} mipmapBlur={false} kernelSize={2} />
-        <Vignette eskil={false} offset={0.3} darkness={0.35} />
-      </EffectComposer>
-    </Canvas>
+    <>
+      {/* Web Audio has nothing to do with WebGL — mounted as a Canvas sibling,
+          not a child, so it isn't tied to the R3F render loop. */}
+      {road && <SoundManager />}
+      <Canvas
+        shadows="soft"
+        camera={{ fov: 45, near: 0.5, far: 4000, position: [0, 220, 260] }}
+        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1, antialias: true }}
+      >
+        {/* Daylight scene: a real sky with a real sun is what makes it read as a
+            place rather than a hairline road floating in a void. Low
+            turbidity/rayleigh keeps the sky dome legibly blue at any camera
+            angle instead of clipping to white under ACES tonemapping. Night/
+            rain/fog skip the atmospheric-scattering <Sky> (it's inherently a
+            clear-sky-daylight model) for a flat overcast/dark color instead. */}
+        <color attach="background" args={[w.background]} />
+        {w.showSky && (
+          <Sky sunPosition={SUN_POSITION} turbidity={w.skyTurbidity} rayleigh={w.skyRayleigh} mieCoefficient={0.003} mieDirectionalG={0.8} />
+        )}
+        <fogExp2 attach="fog" args={[w.fogColor, w.fogDensity]} />
+        <hemisphereLight args={w.hemisphere} />
+        <ambientLight intensity={w.ambient} />
+        <directionalLight
+          position={SUN_POSITION}
+          intensity={w.sunIntensity}
+          color={w.sunColor}
+          castShadow
+          shadow-mapSize={[2048, 2048]}
+          shadow-camera-left={-350}
+          shadow-camera-right={350}
+          shadow-camera-top={350}
+          shadow-camera-bottom={-350}
+          shadow-bias={-0.0003}
+          shadow-normalBias={0.02}
+        />
+        <Suspense fallback={null}>
+          <SceneContent />
+          {road && <WeatherEffects preset={weatherPreset} road={road} />}
+        </Suspense>
+        <EffectComposer multisampling={0}>
+          <SMAA />
+          {/* Tight, selective glow on genuinely bright emissive elements (lights,
+              signals, hazard markers, vehicle tail-lights) rather than a wide/
+              low-threshold bloom that washes color across the whole road
+              surface — this is what makes streetlights/brake-lights actually
+              read as light sources once the night preset darkens everything
+              else around them. */}
+          <Bloom luminanceThreshold={1.0} luminanceSmoothing={0.2} intensity={0.25} mipmapBlur={false} kernelSize={2} />
+          <Vignette eskil={false} offset={0.3} darkness={0.35} />
+        </EffectComposer>
+      </Canvas>
+    </>
   );
 }

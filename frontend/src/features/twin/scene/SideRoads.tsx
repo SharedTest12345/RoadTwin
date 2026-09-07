@@ -1,10 +1,10 @@
-import { useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useMemo } from "react";
 import * as THREE from "three";
 import type { Road, SideRoad } from "../../../types";
 import { buildPath, toWorld, roadHalfWidth } from "../../../three/geometryUtils";
 import { asphaltTexture } from "../../../three/textures";
 import { createTerrainHeightSampler, terrainSeedFor } from "../../../three/terrainHeight";
+import { TrafficSignalHead, SIGNAL_CYCLE_S } from "./TrafficSignalHead";
 
 // Real incoming/side streets, trimmed to a short stub centered on their real
 // junction point with this road (see feature_extraction.py's
@@ -13,9 +13,6 @@ import { createTerrainHeightSampler, terrainSeedFor } from "../../../three/terra
 // A narrower carriageway than the main road (most real side streets are).
 const SIDE_ROAD_HALF_WIDTH_M = 3.2;
 const SIGNAL_POLE_HEIGHT_M = 4.2;
-const SIGNAL_BULB_RADIUS_M = 0.32;
-const SIGNAL_CYCLE_S = 30;
-const SIGNAL_GREEN_S = 18;
 
 /** Simple quad-strip through `worldPts`, perpendicular offset in the world
  * XZ plane from each point's own local forward direction — self-contained
@@ -77,32 +74,26 @@ function SideRoadStub({ sideRoad, groundHeight, phaseOffset }: {
     ? new THREE.Vector3(-dir.z, 0, dir.x).normalize().multiplyScalar(SIDE_ROAD_HALF_WIDTH_M + 1.4)
     : new THREE.Vector3(SIDE_ROAD_HALF_WIDTH_M + 1.4, 0, 0);
   const polePos = junction.clone().add(sideOffset);
-
-  const bulbRef = useRef<THREE.Mesh>(null);
-  useFrame(({ clock }) => {
-    const mesh = bulbRef.current;
-    if (!mesh) return;
-    const phase = (clock.elapsedTime + phaseOffset) % SIGNAL_CYCLE_S;
-    const red = phase > SIGNAL_GREEN_S;
-    const mat = mesh.material as THREE.MeshStandardMaterial;
-    mat.color.set(red ? "#ef4444" : "#22c55e");
-    mat.emissive.set(red ? "#ef4444" : "#22c55e");
-  });
+  // Local +Z (the housing's lamp-face side, see TrafficSignalHead) needs to
+  // point back toward whoever's approaching along the stub — i.e. opposite
+  // the stub's own forward direction at the junction — same rotY(theta) ->
+  // world (sin theta, 0, cos theta) convention used everywhere else in this
+  // scene (Vehicles.tsx, Infrastructure.tsx's stop signs/guard posts).
+  const poleRotY = dir.lengthSq() > 1e-6 ? Math.atan2(-dir.x, -dir.z) : 0;
 
   return (
     <group>
       <mesh geometry={geom} receiveShadow>
         <meshStandardMaterial map={tex} roughness={0.9} />
       </mesh>
-      <group position={polePos}>
-        <mesh position={[0, SIGNAL_POLE_HEIGHT_M / 2, 0]}>
+      <group position={polePos} rotation={[0, poleRotY, 0]}>
+        <mesh position={[0, SIGNAL_POLE_HEIGHT_M / 2, 0]} castShadow>
           <cylinderGeometry args={[0.09, 0.09, SIGNAL_POLE_HEIGHT_M, 6]} />
           <meshStandardMaterial color="#33383f" />
         </mesh>
-        <mesh ref={bulbRef} position={[0, SIGNAL_POLE_HEIGHT_M + 0.1, 0]}>
-          <sphereGeometry args={[SIGNAL_BULB_RADIUS_M, 10, 10]} />
-          <meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={4} toneMapped={false} />
-        </mesh>
+        <group position={[0, SIGNAL_POLE_HEIGHT_M + 0.35, 0]}>
+          <TrafficSignalHead scale={0.75} getPhase={(elapsedTime) => elapsedTime + phaseOffset} />
+        </group>
       </group>
     </group>
   );
