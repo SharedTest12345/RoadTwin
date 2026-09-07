@@ -13,6 +13,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   pedestrian: "Pedestrian",
   visibility: "Visibility",
   environmental: "Environmental",
+  historical: "Historical crash data",
 };
 
 export function RiskPanel() {

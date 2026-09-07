@@ -1,6 +1,6 @@
 import { useStore } from "../../../state/store";
 import type { Objective } from "../../../types";
-import { Check, Sparkles, RotateCcw, Loader2 } from "lucide-react";
+import { Check, Sparkles, RotateCcw, Loader2, TriangleAlert } from "lucide-react";
 
 const OBJECTIVES: { id: Objective; label: string }[] = [
   { id: "balanced", label: "Balanced" },
@@ -32,7 +32,17 @@ export function InterventionPanel() {
   return (
     <div className="fade-in-up">
       <h2 className="panel-title mb-1">Intervention Engine</h2>
-      <p className="text-xs text-ink-400 mb-3">Select interventions to preview, or let the optimizer search combinations.</p>
+      <p className="text-xs text-ink-400 mb-3">
+        Only interventions that would actually address one of this road&rsquo;s own real risk factors are listed —
+        select some to preview, or let the optimizer search combinations.
+      </p>
+
+      {catalog.length === 0 && (
+        <div className="text-sm text-ink-400 mb-4">
+          No applicable interventions were found — this road&rsquo;s risk factors (see Road Intel) aren&rsquo;t
+          ones any item in the catalog addresses.
+        </div>
+      )}
 
       <div className="space-y-1.5 mb-4">
         {catalog.map((opt) => {
@@ -40,11 +50,8 @@ export function InterventionPanel() {
           return (
             <button
               key={opt.id}
-              disabled={!opt.applicable}
               onClick={() => toggleStaged(opt.id)}
-              title={opt.applicable_reason ?? undefined}
               className={`w-full text-left px-3 py-2 rounded-md border transition-colors ${
-                !opt.applicable ? "opacity-40 cursor-not-allowed border-ink-700 bg-ink-850" :
                 staged ? "border-brand/60 bg-brand/10" : "border-ink-700 bg-ink-850 hover:border-ink-500"
               }`}
             >
@@ -60,8 +67,13 @@ export function InterventionPanel() {
               <div className="text-xs text-ink-400 mt-1 pl-6">{opt.description}</div>
               <div className="text-2xs text-ink-500 mt-0.5 pl-6 uppercase tracking-wide">
                 {opt.category} · {opt.complexity} complexity
-                {!opt.applicable && opt.applicable_reason ? ` · ${opt.applicable_reason}` : ""}
               </div>
+              {opt.evidence && (
+                <div className="flex items-start gap-1.5 text-2xs text-risk-high/90 mt-1.5 pl-6 leading-snug normal-case">
+                  <TriangleAlert size={11} className="shrink-0 mt-0.5" />
+                  <span><span className="font-semibold">Backed by real crash data near this road:</span> {opt.evidence}</span>
+                </div>
+              )}
             </button>
           );
         })}

@@ -56,6 +56,15 @@ export interface RoadFeatures {
   near_water: boolean;
   near_school_or_hospital: boolean;
   intersection_density_per_km: number;
+  accident_data_available: boolean;
+  accident_count: number;
+  accident_per_km: number;
+  accident_avg_severity: number;
+  accident_night_pct: number;
+  accident_junction_pct: number;
+  accident_crossing_pct: number;
+  accident_signal_pct: number;
+  accident_adverse_weather_pct: number;
   estimated: string[];
 }
 
@@ -171,6 +180,7 @@ export interface InterventionOption {
   description: string;
   applicable: boolean;
   applicable_reason?: string | null;
+  evidence?: string | null;
 }
 
 export interface InterventionSimulateResult {

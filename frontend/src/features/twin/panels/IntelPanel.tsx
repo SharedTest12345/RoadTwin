@@ -3,7 +3,7 @@ import { Bar } from "../../../ui/Bar";
 import { riskColor } from "../../../lib/riskColors";
 import {
   ChevronLeft, Wrench, Ruler, Gauge, Car, Lightbulb, Footprints, ShieldCheck, ShieldOff,
-  Waves, GraduationCap, Building2, TrafficCone, Route,
+  Waves, GraduationCap, Building2, TrafficCone, Route, TriangleAlert, CloudRain, Moon,
 } from "lucide-react";
 
 function InfoRow({ icon, label, value, positive }: { icon: React.ReactNode; label: string; value: string; positive?: boolean }) {
@@ -82,6 +82,28 @@ export function IntelPanel() {
         <InfoRow icon={<Ruler size={13} />} label="Max curvature" value={`${features.max_curvature_deg_per_20m.toFixed(1)}°/20m`} />
         <InfoRow icon={<Gauge size={13} />} label={`Grade${est.has("slope_pct") ? " (est.)" : ""}`} value={`${features.slope_pct.toFixed(1)}%`} />
         <InfoRow icon={<Route size={13} />} label="Intersection density" value={`${features.intersection_density_per_km.toFixed(1)} /km`} />
+      </div>
+
+      <div className="label-caption mb-2 flex items-center gap-1.5">
+        Historical crash data <span className="chip" style={{ background: "#ef444422", color: "#ef4444" }}>REAL — US-Accidents dataset</span>
+      </div>
+      <div className="surface-card px-3 mb-4">
+        {features.accident_data_available ? (
+          features.accident_count > 0 ? (
+            <>
+              <InfoRow icon={<TriangleAlert size={13} />} label="Recorded crashes nearby (since 2016)" value={String(features.accident_count)} positive={false} />
+              <InfoRow icon={<Route size={13} />} label="Crash density (per km searched)" value={`${features.accident_per_km.toFixed(1)} /km`} />
+              <InfoRow icon={<Gauge size={13} />} label="Avg. traffic impact (not injury severity)" value={`${features.accident_avg_severity.toFixed(1)} / 4`} />
+              <InfoRow icon={<Moon size={13} />} label="Occurred at night" value={`${features.accident_night_pct.toFixed(0)}%`} />
+              <InfoRow icon={<TrafficCone size={13} />} label="Occurred at a junction" value={`${features.accident_junction_pct.toFixed(0)}%`} />
+              <InfoRow icon={<CloudRain size={13} />} label="Occurred in adverse weather" value={`${features.accident_adverse_weather_pct.toFixed(0)}%`} />
+            </>
+          ) : (
+            <div className="text-xs text-ink-400 py-1.5">No recorded crashes within ~500m of this corridor in the dataset (2016-2023).</div>
+          )
+        ) : (
+          <div className="text-xs text-ink-500 py-1.5">Crash-history dataset not loaded on this backend — this factor is inactive.</div>
+        )}
       </div>
 
       <div className="label-caption mb-2">Risk factors</div>

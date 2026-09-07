@@ -7,6 +7,7 @@ from typing import List, Tuple
 from ..models.schemas import RoadGeometry, RoadFeatures, LatLng, SideRoad
 from ..providers.base import RawRoad, DEFAULT_SPEED_KMH, DEFAULT_VOLUME_VPH
 from .geometry import polyline_length_m, project_ref, curvature_stats
+from . import accident_data
 
 # A candidate street's own nearest point to our route has to land within this
 # to actually count as meeting it (a real junction) rather than just passing
@@ -138,6 +139,7 @@ def extract(raw: RawRoad) -> Tuple[RoadGeometry, RoadFeatures]:
         for ring in raw.get("building_footprints", [])
     ]
     side_roads = _extract_side_roads(xy, raw.get("nearby_ways", []), ref_lat, ref_lon)
+    accident_stats = accident_data.nearby_stats(points, length_m)
 
     geometry = RoadGeometry(
         points=[LatLng(lat=p[0], lon=p[1]) for p in points],
@@ -164,6 +166,15 @@ def extract(raw: RawRoad) -> Tuple[RoadGeometry, RoadFeatures]:
         near_water=near_water,
         near_school_or_hospital=near_school_or_hospital,
         intersection_density_per_km=intersection_density,
+        accident_data_available=accident_data.available(),
+        accident_count=accident_stats.count,
+        accident_per_km=accident_stats.accidents_per_km,
+        accident_avg_severity=accident_stats.avg_severity,
+        accident_night_pct=accident_stats.night_pct,
+        accident_junction_pct=accident_stats.junction_pct,
+        accident_crossing_pct=accident_stats.crossing_pct,
+        accident_signal_pct=accident_stats.signal_pct,
+        accident_adverse_weather_pct=accident_stats.adverse_weather_pct,
         estimated=estimated,
     )
     return geometry, features

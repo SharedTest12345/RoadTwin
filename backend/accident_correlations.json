@@ -1,0 +1,132 @@
+{
+  "total_rows": 7728394,
+  "skipped_rows": 0,
+  "overall_avg_severity": 2.212,
+  "flag_correlations": {
+    "Traffic_Signal": {
+      "avg_severity_when_true": 2.09,
+      "avg_severity_when_false": 2.234,
+      "n_true": 1143772,
+      "n_false": 6584622
+    },
+    "Junction": {
+      "avg_severity_when_true": 2.298,
+      "avg_severity_when_false": 2.206,
+      "n_true": 571342,
+      "n_false": 7157052
+    },
+    "Crossing": {
+      "avg_severity_when_true": 2.064,
+      "avg_severity_when_false": 2.231,
+      "n_true": 873763,
+      "n_false": 6854631
+    },
+    "Stop": {
+      "avg_severity_when_true": 2.076,
+      "avg_severity_when_false": 2.216,
+      "n_true": 214371,
+      "n_false": 7514023
+    },
+    "Give_Way": {
+      "avg_severity_when_true": 2.179,
+      "avg_severity_when_false": 2.213,
+      "n_true": 36582,
+      "n_false": 7691812
+    },
+    "Railway": {
+      "avg_severity_when_true": 2.159,
+      "avg_severity_when_false": 2.213,
+      "n_true": 66979,
+      "n_false": 7661415
+    },
+    "Night": {
+      "avg_severity_when_true": 2.219,
+      "avg_severity_when_false": 2.209,
+      "n_true": 2370595,
+      "n_false": 5357799
+    },
+    "Adverse_Weather": {
+      "avg_severity_when_true": 2.235,
+      "avg_severity_when_false": 2.21,
+      "n_true": 812343,
+      "n_false": 6916051
+    }
+  },
+  "top_weather_conditions": [
+    {
+      "condition": "Fair",
+      "n": 2560802,
+      "avg_severity": 2.127
+    },
+    {
+      "condition": "Mostly Cloudy",
+      "n": 1016195,
+      "avg_severity": 2.222
+    },
+    {
+      "condition": "Cloudy",
+      "n": 817082,
+      "avg_severity": 2.16
+    },
+    {
+      "condition": "Clear",
+      "n": 808743,
+      "avg_severity": 2.368
+    },
+    {
+      "condition": "Partly Cloudy",
+      "n": 698972,
+      "avg_severity": 2.218
+    },
+    {
+      "condition": "Overcast",
+      "n": 382866,
+      "avg_severity": 2.385
+    },
+    {
+      "condition": "Light Rain",
+      "n": 352957,
+      "avg_severity": 2.248
+    },
+    {
+      "condition": "Scattered Clouds",
+      "n": 204829,
+      "avg_severity": 2.38
+    },
+    {
+      "condition": "Unknown",
+      "n": 173459,
+      "avg_severity": 2.255
+    },
+    {
+      "condition": "Light Snow",
+      "n": 128680,
+      "avg_severity": 2.245
+    },
+    {
+      "condition": "Fog",
+      "n": 99238,
+      "avg_severity": 2.146
+    },
+    {
+      "condition": "Rain",
+      "n": 84331,
+      "avg_severity": 2.259
+    },
+    {
+      "condition": "Haze",
+      "n": 76223,
+      "avg_severity": 2.213
+    },
+    {
+      "condition": "Fair / Windy",
+      "n": 35671,
+      "avg_severity": 2.144
+    },
+    {
+      "condition": "Heavy Rain",
+      "n": 32309,
+      "avg_severity": 2.264
+    }
+  ]
+}

@@ -73,6 +73,22 @@ class RoadFeatures(BaseModel):
     near_water: bool
     near_school_or_hospital: bool
     intersection_density_per_km: float
+    # Real historical crash data (Kaggle US-Accidents, 2016-2023) near this
+    # road's actual coordinates — see services/accident_data.py. Zeroed out
+    # (accident_data_available=False) rather than guessed when the offline
+    # grid build hasn't been run, same as every other optional live source.
+    accident_data_available: bool = False
+    accident_count: int = 0
+    accident_per_km: float = 0.0
+    # 1-4, Kaggle's own "Severity" scale — per the dataset's own documentation
+    # this measures TRAFFIC IMPACT (how long a delay the crash caused), not
+    # injury/fatality severity. Never label this "how dangerous" in the UI.
+    accident_avg_severity: float = 0.0
+    accident_night_pct: float = 0.0
+    accident_junction_pct: float = 0.0
+    accident_crossing_pct: float = 0.0
+    accident_signal_pct: float = 0.0
+    accident_adverse_weather_pct: float = 0.0
     estimated: List[str] = Field(default_factory=list)  # names of fields that are model-estimated, not source data
 
 
@@ -213,6 +229,11 @@ class InterventionOption(BaseModel):
     description: str
     applicable: bool = True
     applicable_reason: Optional[str] = None
+    # Set only when this road's own nearby real crash history (not a generic
+    # rule) specifically supports this intervention — see
+    # intervention_engine.py's accident_evidence(). None for roads with no
+    # accident-data coverage, or where the local pattern doesn't stand out.
+    evidence: Optional[str] = None
 
 
 class RoadAnalyzeRequest(BaseModel):

@@ -25,6 +25,8 @@ backend (FastAPI)
    +-- services/
          geometry.py            haversine length, local ENU projection, curvature/heading
          feature_extraction.py  RawRoad -> RoadGeometry + RoadFeatures (labels estimated fields)
+         accident_data.py       real historical crash lookup near a road (Kaggle US-Accidents,
+                                 backend/accidents.db — see "Historical crash data" below)
          risk_engine.py         RoadFeatures -> explainable 0-100 risk score + star rating
          traffic_sim.py         IDM microsimulation + TTC conflict detection
          intervention_engine.py catalog of interventions as feature-space transforms
@@ -33,6 +35,10 @@ backend (FastAPI)
          road_store.py          fetch/build orchestration (live OSM/OSRM with demo fallback)
          road_db.py             SQLite-backed catalog of every road scanned so far
                                  (backend/roadtwin.db) — survives a backend restart
+
+   +-- scripts/
+         build_accident_grid.py  one-time ETL: Kaggle US-Accidents CSV -> backend/accidents.db
+                                  (a lat/lon grid of real crash aggregates) + a correlation report
 ```
 
 Every endpoint degrades gracefully: if Overpass is unreachable, `road_store` falls back to OSRM,
@@ -89,11 +95,46 @@ Additive, fully explainable. Each factor is a named function of real features, e
 - `no_sidewalk`: `+10` near a school/hospital, else `+4`
 - `high_vehicle_speed`, `high_traffic_volume`, `no_street_lighting`, `unlit_blind_curves`,
   `uncontrolled_intersections`, `insufficient_crossings`, `steep_grade`, `unprotected_water_edge`
+- `historical_crash_record`: real recorded crashes near this road's actual coordinates (see
+  "Historical crash data" below) — up to `+14` from crash density, `+3` from traffic impact.
+  Unlike every other factor, this one is **not** reduced by simulated interventions: real crash
+  history is a fixed fact, not a mutable feature, so it sets a floor under how far the score can
+  drop for a road with an established crash record (see the flagship demo walkthrough below).
 
 See `backend/app/services/risk_engine.py` for the full, exact list. Total is clamped to 0-100.
 Star rating is derived from the *safety* score (`100 - risk`), matching the UI convention that more
 stars = safer: `80-100 safety -> full care applied`, mapped in `_category_label` /
 `risk.stars = round((100 - risk) / 20, 1)`.
+
+### Historical crash data
+
+`backend/scripts/build_accident_grid.py` is a one-time offline ETL over the Kaggle
+[US-Accidents](https://www.kaggle.com/datasets/sobhanmoosavi/us-accidents) dataset (7,728,394 real
+US crashes, 2016-2023, not checked into the repo — ~3GB CSV, download it yourself and point the
+script at it). It streams the CSV once and reduces it to two artifacts:
+
+1. `backend/accidents.db` — a SQLite table of real crash counts/traffic-impact aggregated onto a
+   ~500m lat/lon grid. `accident_data.py` queries this at request time (never the raw CSV) for any
+   scanned road, real or demo, by looking up the grid cells within ~500m of its actual polyline —
+   same "SQLite-backed catalog" pattern as `road_db.py`, pre-populated once instead of grown live.
+2. `backend/accident_correlations.json` — average traffic-impact severity split by the same
+   real/estimated conditions `risk_engine.py` already scores (signal presence, junction, night,
+   adverse weather), used to sanity-check those hand-set point weights against 7.7M real outcomes
+   rather than tuning them by feel. The full numbers and what they did (and didn't) change are in
+   `risk_engine.py`'s own comments next to `HISTORICAL_SEVERITY_BASELINE`.
+
+**Important honesty note**: the dataset's own `Severity` field (1-4) is documented by its author as
+*traffic impact* — how long a delay the crash caused — not injury or fatality severity. This app
+never presents it as "how dangerous" for that reason; every UI label calls it "traffic impact."
+
+Neither artifact is required to run the app — `accident_data.available()` returns `False` and every
+downstream number zeroes out gracefully (same posture as Overpass/OSRM being unreachable) if
+`accidents.db` hasn't been built.
+
+```powershell
+# One-time, after downloading the Kaggle CSV somewhere local:
+.venv\Scripts\python.exe scripts\build_accident_grid.py path\to\US_Accidents_March23.csv
+```
 
 ### Traffic simulation
 
@@ -125,9 +166,29 @@ simulation doesn't model — run-off-road, pedestrian exposure, nighttime visibi
 speed/signal interventions move the *simulation metrics* (delay, conflicts) — the before/after
 panel is honest about this rather than making every intervention move every number.
 
-The optimizer (`optimizer.py`) brute-forces the powerset of applicable interventions (at most 7
-items → 128 combinations), re-running the real risk model and a real (shortened) simulation for
-every combination, then ranks by objective (`safety`, `traffic`, `budget`, `balanced`).
+The optimizer (`optimizer.py`) brute-forces the powerset of the road's own applicable interventions
+(at most 7 items → 128 combinations), re-running the real risk model and a real (shortened)
+simulation for every combination, then ranks by objective (`safety`, `traffic`, `budget`, `balanced`).
+
+### Customized interventions
+
+Every `applicable_check` in `intervention_engine.py`'s catalog mirrors the EXACT condition
+`risk_engine.py` uses to trigger the factor that intervention addresses (e.g. `guardrail` requires
+the same `sharp_turn_count > 0 or near_water or slope_pct > 5` hazard-edge check `no_guardrail`
+does, not just "no guardrail present") — an intervention that wouldn't actually move a road's score
+is never offered for it, rather than shown disabled. `GET /interventions/catalog/{road_id}` returns
+only that road's real menu, so two roads with different risk factors get genuinely different lists,
+not the same fixed 7 items with some grayed out.
+
+Real accident history (see below) can additionally unlock an intervention the static OSM-tag proxy
+alone wouldn't have — `accident_evidence()` compares a road's own nearby crash mix (night %,
+junction %, crossing %) against the *national baseline* for that condition (from the same 7.73M-row
+dataset), and only when a road's local pattern is meaningfully above the norm does the matching
+intervention gain a real-data justification string, shown in the UI as "Backed by real crash data
+near this road: …". A `pedestrian_crossing` recommendation is skipped on a road tagged
+motorway/trunk regardless of what the crash buffer found nearby — a limited-access road doesn't
+carry pedestrians, no matter what real crashes happen to be recorded in the ~500m search radius
+around it.
 
 ### Priority map ("government mode")
 
@@ -173,10 +234,17 @@ You land on the Atlas (`/`) — a map of every road scanned so far (empty on a f
 Click **Demo** in the top nav (or open `http://localhost:5173/twin/pch_cliff_road`, or the
 legacy `http://localhost:5173/?autodemo=pch_cliff_road`) to jump straight to the flagship
 scenario: a Pacific Coast Highway switchback above the Big Sur coastline with no guardrail scores
-**CRITICAL (0.9★, risk 81/100)**. Open **Road Intel**, then **Interventions**, and apply
-**Guardrail + Reduce Speed Environment** (or click **Apply Recommended Combination** after
-running the optimizer) — risk drops to **MODERATE CONCERN (~2.6★, risk ~47)**, with simulated
-conflicts and delay dropping to zero in the Before/After panel.
+**CRITICAL (0.2★, risk ~95/100)** — real recorded crash history near this stretch (see
+"Historical crash data" below) now contributes to that on top of the geometry/infrastructure
+factors. Open **Road Intel**, then **Interventions**. Guardrail + Reduce Speed Environment alone
+now only gets you to **HIGH (~1.9★, risk ~61)**: real crash history is a fixed, real-world fact
+that intervening today can't retroactively erase, so it caps how far any combination can bring the
+score down. Click **Apply Recommended Combination** after running the optimizer for its best
+4-intervention combo (guardrail, speed, lighting, road markings) — risk drops to **MODERATE
+CONCERN (~2.5★, risk ~50)**, with simulated conflicts and delay dropping to zero in the
+Before/After panel. Only interventions that actually address one of this road's own real risk
+factors are offered in the first place (see "Customized interventions" below) — a flat highway
+merge, for instance, is never offered a pedestrian crossing.
 
 Click **Scan Random Road** to pull a real road from OpenStreetMap (San Francisco, Big Sur,
 Manhattan, Golden CO, Chicago Loop, or Seattle) via the Overpass API. If Overpass is unreachable,

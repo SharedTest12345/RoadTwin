@@ -9,6 +9,7 @@ backend/**/__pycache__/
 backend/**/*.pyc
 backend/uvicorn*.log
 backend/roadtwin.db
+backend/accidents.db
 
 # Editor / OS
 .DS_Store
