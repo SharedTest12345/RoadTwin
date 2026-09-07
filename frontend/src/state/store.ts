@@ -60,14 +60,17 @@ interface RoadTwinState {
   stagedIds: string[];
   interventionResult: InterventionSimulateResult | null;
   applyingIntervention: boolean;
+  interventionError: string | null;
   twinOverrides: Record<string, boolean>;
 
   optimizeResult: OptimizeResult | null;
   optimizing: boolean;
+  optimizeError: string | null;
   objective: Objective;
 
   priorityMap: PriorityMapResult | null;
   priorityLoading: boolean;
+  priorityError: string | null;
 
   knownRoads: RoadSummary[] | null;
   knownRoadsLoading: boolean;
@@ -128,14 +131,17 @@ export const useStore = create<RoadTwinState>((set, get) => ({
   stagedIds: [],
   interventionResult: null,
   applyingIntervention: false,
+  interventionError: null,
   twinOverrides: {},
 
   optimizeResult: null,
   optimizing: false,
+  optimizeError: null,
   objective: "balanced",
 
   priorityMap: null,
   priorityLoading: false,
+  priorityError: null,
 
   knownRoads: null,
   knownRoadsLoading: false,
@@ -235,32 +241,33 @@ export const useStore = create<RoadTwinState>((set, get) => ({
     const road = get().road;
     const staged = get().stagedIds;
     if (!road || staged.length === 0) return;
-    set({ applyingIntervention: true });
+    set({ applyingIntervention: true, interventionError: null });
     try {
       const result = await api.simulateInterventions(road.id, staged);
       set({ interventionResult: result, twinOverrides: result.twin_changes, applyingIntervention: false, panel: "compare" });
       const sim = await api.runSimulation(road.id, 300, staged, get().weatherPreset === "rain");
       set({ sim, simTime: 0, simPlaying: true });
-    } catch {
-      set({ applyingIntervention: false });
+    } catch (e) {
+      set({ applyingIntervention: false, interventionError: e instanceof Error ? e.message : "Failed to apply interventions" });
     }
   },
 
   resetInterventions: async () => {
     const road = get().road;
-    set({ stagedIds: [], interventionResult: null, twinOverrides: {}, optimizeResult: null });
+    set({ stagedIds: [], interventionResult: null, twinOverrides: {}, optimizeResult: null,
+          interventionError: null, optimizeError: null });
     if (road) fetchBaselineSim(road.id, set, get().weatherPreset === "rain");
   },
 
   runOptimize: async (objective: Objective) => {
     const road = get().road;
     if (!road) return;
-    set({ optimizing: true, objective });
+    set({ optimizing: true, objective, optimizeError: null });
     try {
       const result = await api.optimize(road.id, objective);
       set({ optimizeResult: result, optimizing: false });
-    } catch {
-      set({ optimizing: false });
+    } catch (e) {
+      set({ optimizing: false, optimizeError: e instanceof Error ? e.message : "Failed to run optimizer" });
     }
   },
 
@@ -272,12 +279,12 @@ export const useStore = create<RoadTwinState>((set, get) => ({
   },
 
   loadPriorityMap: async () => {
-    set({ priorityLoading: true });
+    set({ priorityLoading: true, priorityError: null });
     try {
       const priorityMap = await api.priorityMap(false);
       set({ priorityMap, priorityLoading: false });
-    } catch {
-      set({ priorityLoading: false });
+    } catch (e) {
+      set({ priorityLoading: false, priorityError: e instanceof Error ? e.message : "Failed to load priority map" });
     }
   },
 

@@ -19,9 +19,11 @@ export function InterventionPanel() {
   const toggleStaged = useStore((s) => s.toggleStaged);
   const applyStaged = useStore((s) => s.applyStaged);
   const applyingIntervention = useStore((s) => s.applyingIntervention);
+  const interventionError = useStore((s) => s.interventionError);
   const resetInterventions = useStore((s) => s.resetInterventions);
   const optimizeResult = useStore((s) => s.optimizeResult);
   const optimizing = useStore((s) => s.optimizing);
+  const optimizeError = useStore((s) => s.optimizeError);
   const objective = useStore((s) => s.objective);
   const runOptimize = useStore((s) => s.runOptimize);
   const applyOptimizerBest = useStore((s) => s.applyOptimizerBest);
@@ -83,6 +85,9 @@ export function InterventionPanel() {
         <span>{stagedIds.length} selected</span>
         <span className="mono">{fmtUsd(stagedCost)} estimated</span>
       </div>
+      {interventionError && (
+        <div className="text-xs text-risk-high mb-2">{interventionError}</div>
+      )}
       <div className="flex gap-2 mb-4">
         <button
           onClick={applyStaged}
@@ -121,6 +126,9 @@ export function InterventionPanel() {
           <div className="flex items-center gap-2 text-xs text-ink-400 py-2">
             <Loader2 size={14} className="animate-spin" /> Evaluating intervention combinations…
           </div>
+        )}
+        {optimizeError && !optimizing && (
+          <div className="text-xs text-risk-high py-1">{optimizeError}</div>
         )}
         {optimizeResult && !optimizing && (
           <div className="surface-card p-3 mt-1">

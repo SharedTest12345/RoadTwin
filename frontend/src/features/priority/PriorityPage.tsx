@@ -20,6 +20,7 @@ export function PriorityPage() {
   const navigate = useNavigate();
   const priorityMap = useStore((s) => s.priorityMap);
   const priorityLoading = useStore((s) => s.priorityLoading);
+  const priorityError = useStore((s) => s.priorityError);
   const loadPriorityMap = useStore((s) => s.loadPriorityMap);
 
   useEffect(() => {
@@ -54,6 +55,18 @@ export function PriorityPage() {
         {priorityLoading && (
           <div className="flex items-center gap-2 text-ink-400 py-8 justify-center">
             <Loader2 className="animate-spin" size={18} /> Ranking scanned roads…
+          </div>
+        )}
+
+        {priorityError && !priorityLoading && (
+          <div className="text-center py-12 border border-ink-700 rounded-lg bg-ink-850">
+            <p className="text-risk-high text-sm mb-3">{priorityError}</p>
+            <button
+              onClick={loadPriorityMap}
+              className="px-3 py-1.5 rounded border border-ink-600 hover:bg-ink-800 text-xs transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 
