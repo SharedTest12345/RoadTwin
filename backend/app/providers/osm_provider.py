@@ -189,6 +189,8 @@ def _combined_query(bbox) -> str:
       node["amenity"="hospital"]({b});
       way["natural"="water"]({b});
       node["natural"="water"]({b});
+      way["natural"="coastline"]({b});
+      way["waterway"~"^(river|riverbank|stream)$"]({b});
       way["barrier"="guard_rail"]({b});
       node["barrier"="guard_rail"]({b});
       way["building"]({b});
@@ -276,7 +278,13 @@ class _ContextPool:
                 self.schools.append((lat, lon))
             elif tags.get("amenity") == "hospital":
                 self.hospitals.append((lat, lon))
-            elif tags.get("natural") == "water":
+            elif tags.get("natural") in ("water", "coastline") or tags.get("waterway") in ("river", "riverbank", "stream"):
+                # "natural=water" alone misses the two most common real
+                # drop-off hazards: an ocean-adjacent road (tagged
+                # natural=coastline, a different tag from an inland lake)
+                # and a riverside road (waterway=river/riverbank) — both are
+                # exactly the kind of edge a guardrail exists for, and both
+                # were previously invisible to water_nearby.
                 self.water_points.append((lat, lon))
             elif tags.get("barrier") == "guard_rail":
                 self.guardrail_points.append((lat, lon))

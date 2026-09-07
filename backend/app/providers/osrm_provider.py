@@ -13,6 +13,7 @@ never a fabricated attribute presented as sourced.
 import logging
 import math
 import random
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import requests
@@ -21,7 +22,7 @@ from .. import config
 from .base import RoadDataProvider, RawRoad
 from . import osm_provider
 from .osm_provider import HIGHWAY_CLASSES, HostUnreachable
-from ..services.geometry import polyline_length_m, haversine_m
+from ..services.geometry import polyline_length_m, haversine_m, point_near_polyline, project_local_xy
 
 log = logging.getLogger("roadtwin.osrm")
 
@@ -129,27 +130,48 @@ BUILDING_FETCH_CAP = 60
 # own junction proximity filter throws most non-junction candidates away
 # anyway — this just bounds how many candidate ways get sent over the wire.
 WAY_FETCH_CAP = 30
+# Matches osm_provider.py's own _ContextPool.enrich() radius_m default — same
+# "is this actually near the road, not just somewhere in the query bbox" cut.
+CONTEXT_RADIUS_M = 180.0
 
 
-def _fetch_context_near_route(points: List[Tuple[float, float]]) -> Tuple[List[List[Tuple[float, float]]], List[List[Tuple[float, float]]]]:
+@dataclass
+class _RouteContext:
+    buildings: List[List[Tuple[float, float]]]
+    ways: List[List[Tuple[float, float]]]
+    signals: List[Tuple[float, float]]
+    crossings: List[Tuple[float, float]]
+    schools: List[Tuple[float, float]]
+    hospitals: List[Tuple[float, float]]
+    water_nearby: bool
+    guardrail_present: bool
+
+
+_EMPTY_CONTEXT = _RouteContext([], [], [], [], [], [], False, False)
+
+
+def _fetch_context_near_route(points: List[Tuple[float, float]]) -> _RouteContext:
     """This provider exists specifically because Overpass (osm_provider.py) is
     unreliable — but that unreliability applies to its big REGION-WIDE discovery
     query, not necessarily to a single small query scoped to just this route's own
-    bounding box. Real building footprints AND real neighboring streets (for the
-    incoming/side-roads feature) are worth trying for over the always-empty lists
-    this used to hardcode, which is what forced every OSRM-sourced road onto fully
-    procedural (map-inaccurate) building/tree placement and no side roads at all.
-    One combined query (not two) for the same reason osm_provider.py's own
-    _combined_query is one call, not several. Best-effort and silent on any
-    failure — this is all decoration; the route itself must never depend on it.
-    Routed through osm_provider._overpass() (not a second bespoke POST here)
-    so this also gets its shared "Overpass just proved unreachable" cooldown
-    for free — without it, a road_store retry burst that already gave up on
-    OSM's own Overpass call would still pay a full fresh connect timeout HERE
-    for every OSRM candidate it evaluates in the same burst.
-    Returns (building_rings, way_polylines), both as raw (lat, lon) point lists."""
+    bounding box. Real building footprints, real neighboring streets (for the
+    incoming/side-roads feature), AND real signal/crossing/school/hospital/water/
+    guardrail context are all worth trying for over the always-hardcoded-empty
+    this used to give every OSRM-sourced road — the practical effect being that a
+    searched-by-name route along an actual coastal cliff (e.g. a Highway-1-style
+    road with no OSM guard_rail tag) silently scored as if it were flat, inland,
+    and signal-free, because this provider never even asked. One combined query
+    (not several) for the same reason osm_provider.py's own _combined_query is one
+    call — same tag set as that query, just scoped to this route's own small bbox
+    instead of a whole discovery region. Best-effort and silent on any failure —
+    decoration and hazard context alike; the route itself must never depend on it.
+    Routed through osm_provider._overpass() (not a second bespoke POST here) so
+    this also gets its shared "Overpass just proved unreachable" cooldown for
+    free — without it, a road_store retry burst that already gave up on OSM's own
+    Overpass call would still pay a full fresh connect timeout HERE for every
+    OSRM candidate it evaluates in the same burst."""
     if not config.USE_LIVE_OSM or len(points) < 2:
-        return [], []
+        return _EMPTY_CONTEXT
     lats = [p[0] for p in points]
     lons = [p[1] for p in points]
     # ~150m buffer in degrees around the route's own bounding box — rough (not
@@ -163,6 +185,16 @@ def _fetch_context_near_route(points: List[Tuple[float, float]]) -> Tuple[List[L
     (
       way["building"]({b});
       way["highway"~"^({HIGHWAY_CLASSES})$"]["area"!="yes"]({b});
+      node["highway"="traffic_signals"]({b});
+      node["highway"="crossing"]({b});
+      node["amenity"="school"]({b});
+      node["amenity"="hospital"]({b});
+      way["natural"="water"]({b});
+      node["natural"="water"]({b});
+      way["natural"="coastline"]({b});
+      way["waterway"~"^(river|riverbank|stream)$"]({b});
+      way["barrier"="guard_rail"]({b});
+      node["barrier"="guard_rail"]({b});
     );
     out geom;
     """
@@ -170,22 +202,71 @@ def _fetch_context_near_route(points: List[Tuple[float, float]]) -> Tuple[List[L
         data = osm_provider._overpass(query)
     except HostUnreachable as exc:
         log.warning("Overpass context fetch skipped (non-fatal, route unaffected): %s", exc)
-        return [], []
+        return _EMPTY_CONTEXT
     if not data:
-        return [], []
+        return _EMPTY_CONTEXT
+
     buildings: List[List[Tuple[float, float]]] = []
     ways: List[List[Tuple[float, float]]] = []
+    signals: List[Tuple[float, float]] = []
+    crossings: List[Tuple[float, float]] = []
+    schools: List[Tuple[float, float]] = []
+    hospitals: List[Tuple[float, float]] = []
+    water_points: List[List[Tuple[float, float]]] = []
+    guardrail_points: List[List[Tuple[float, float]]] = []
+
     for el in data.get("elements", []):
-        geom = el.get("geometry")
-        if not geom or len(geom) < 2:
-            continue
         tags = el.get("tags", {})
-        pts = [(g["lat"], g["lon"]) for g in geom]
-        if "building" in tags and len(pts) >= 3:
-            buildings.append(pts)
-        elif "highway" in tags:
-            ways.append(pts)
-    return buildings[:BUILDING_FETCH_CAP], ways[:WAY_FETCH_CAP]
+        geom = el.get("geometry")
+        if geom and len(geom) >= 1:
+            pts = [(g["lat"], g["lon"]) for g in geom]
+        elif el.get("lat") is not None and el.get("lon") is not None:
+            pts = [(el["lat"], el["lon"])]
+        else:
+            continue
+        point = pts[len(pts) // 2]  # single representative point for node-like context
+
+        if "building" in tags:
+            if len(pts) >= 3:
+                buildings.append(pts)
+        elif tags.get("highway") == "traffic_signals":
+            signals.append(point)
+        elif tags.get("highway") == "crossing":
+            crossings.append(point)
+        elif tags.get("amenity") == "school":
+            schools.append(point)
+        elif tags.get("amenity") == "hospital":
+            hospitals.append(point)
+        elif "highway" in tags:  # a real road class, matched by HIGHWAY_CLASSES above
+            if len(pts) >= 2:
+                ways.append(pts)
+        elif tags.get("natural") in ("water", "coastline") or tags.get("waterway") in ("river", "riverbank", "stream"):
+            water_points.append(pts)
+        elif tags.get("barrier") == "guard_rail":
+            guardrail_points.append(pts)
+
+    # Distance-filter everything against the route's own line (not just "was in
+    # the padded bbox") — same point_near_polyline check osm_provider.py's
+    # _ContextPool.enrich() uses, reprojected into one shared local frame per call.
+    xy_route = project_local_xy(points)
+
+    def _near(pts: List[Tuple[float, float]]) -> bool:
+        elem_xy = project_local_xy(points + pts)[len(points):]
+        return any(point_near_polyline(xy, xy_route, CONTEXT_RADIUS_M) for xy in elem_xy)
+
+    def _filter_points(pool: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        return [p for p in pool if _near([p])]
+
+    return _RouteContext(
+        buildings=buildings[:BUILDING_FETCH_CAP],
+        ways=ways[:WAY_FETCH_CAP],
+        signals=_filter_points(signals),
+        crossings=_filter_points(crossings),
+        schools=_filter_points(schools),
+        hospitals=_filter_points(hospitals),
+        water_nearby=any(_near(pts) for pts in water_points),
+        guardrail_present=any(_near(pts) for pts in guardrail_points),
+    )
 
 
 def _truncate(points: List[Tuple[float, float]], max_m: float) -> List[Tuple[float, float]]:
@@ -227,21 +308,22 @@ def _route_to_road(data: dict, region: str, route_id: str) -> Optional[RawRoad]:
     named_steps = [s for s in steps if s.get("name")]
     name = max(named_steps, key=lambda s: s.get("distance", 0))["name"] if named_steps else f"Real Route ({region})"
 
-    buildings, ways = _fetch_context_near_route(points)
+    ctx = _fetch_context_near_route(points)
     return RawRoad(
         osm_id=f"osrm:{route_id}", name=name, region=region, points=points,
         tags=dict(highway=None, lanes=None, maxspeed_kmh=None, oneway=False,
                    surface=None, lit=None, sidewalk=None, bridge=False),
-        nearby_signals=[], nearby_crossings=[], nearby_schools=[], nearby_hospitals=[],
-        water_nearby=False, guardrail_present=False,
+        nearby_signals=ctx.signals, nearby_crossings=ctx.crossings,
+        nearby_schools=ctx.schools, nearby_hospitals=ctx.hospitals,
+        water_nearby=ctx.water_nearby, guardrail_present=ctx.guardrail_present,
         # Each turn-by-turn step ends at a maneuver point — a reasonable proxy for
         # intersections actually crossed along a real route, absent Overpass's
         # direct node-tag context.
         intersections=max(1, len(steps) - 1),
         slope_pct=None,
         source="osrm",
-        building_footprints=buildings,
-        nearby_ways=ways,
+        building_footprints=ctx.buildings,
+        nearby_ways=ctx.ways,
     )
 
 
